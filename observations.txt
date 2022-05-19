@@ -1,0 +1,3 @@
+Tudo é medido em int
+dinheiro é medido em centavos
+bens são medidos em gramas
