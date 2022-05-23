@@ -12,12 +12,12 @@ money1 = int(input('Dinheiro da Comuna 1 > '))
 variables.communes = [commune.Commune(size0, money0, 0),
                       commune.Commune(size1, money1, 1), ]
 
-
-def clear():
-    os.system('cls')
-
-
 while True:
+
+    market.exchange()
+
+    migration.emigrate()
+    migration.immigrate()
 
     for commune in variables.communes:
         commune.consume()
@@ -26,20 +26,18 @@ while True:
         commune.assess()
 
     market.assess()
-    market.exchange()
 
-    migration.emigrate()
-    migration.immigrate()
-
-    clear()
     print()
     print('=' * 10 + ' MERCADO ' + '=' * 10)
     print()
     print(f'Base monetária: {variables.money_supply:.2f}')
+    print(f'População: {variables.population}')
+    print(f'Migrando...: {variables.to_migrate}')
+    print()
     for count in range(len(variables.goods)):
         print(f'Demanda de {variables.goods[count][0]}: {variables.total_demand[count]}')
         print(f'Oferta de {variables.goods[count][0]}: {variables.total_supply[count]}')
-        print(f'Preço de {variables.goods[count][0]}: {variables.prices[count]}')
+        print(f'Preço de {variables.goods[count][0]}: {variables.prices[count]:.2f}')
         print()
 
     print()
@@ -68,4 +66,5 @@ while True:
         print(f'População: {commune.size}')
         print(f'Dinheiro: {commune.money:.2f}')
         print(f'Bem-estar: {commune.welfare}')
+        print(f'Compensação: {commune.compensation}')
         print()

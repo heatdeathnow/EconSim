@@ -1,14 +1,18 @@
+import math
 from random import shuffle
+from math import floor
 import variables
 
 
 def assess():
     variables.money_supply = 0
+    variables.population = 0
     variables.total_demand = [0] * len(variables.goods)
     variables.total_supply = [0] * len(variables.goods)
     variables.prices = [0] * len(variables.goods)
     for commune in variables.communes:
         variables.money_supply += commune.money
+        variables.population += commune.size
 
         id = 0
         for demand in commune.total_demand:
@@ -23,8 +27,11 @@ def assess():
     id = 0
     while id < len(variables.prices):
         try:
-            variables.prices[id]\
-                = round((variables.money_supply * variables.total_demand[id]) / (variables.total_supply[id] ** 2))
+            # Preço = (Demanda / Oferta) * (Q.Monetária / Q.População) / (V. Monetária)
+            variables.prices[id] = math.floor(
+                variables.total_demand[id] * variables.money_supply
+                / variables.total_supply[id] / variables.population / variables.money_velocity
+            )
 
         except ZeroDivisionError:
             variables.prices[id] = float('inf')
@@ -38,30 +45,18 @@ def exchange():
     for commune in order:
         for need in commune.needs:
 
-            if variables.prices[need[0]] == 0:
-                spent = 0
-                bought = commune.survival_demand[need[0]]
-
-            elif variables.prices[need[0]] == float('inf'):
+            if variables.prices[need[0]] == float('inf'):
                 spent = 0
                 bought = 0
 
-            # Demanda <= Pode comprar & Demanda <= Oferta - situação 1, compra tudo que precisa
-            elif (commune.survival_demand[need[0]] <= commune.money / variables.prices[need[0]]
-                    and commune.survival_demand[need[0]] <= variables.total_supply[need[0]]):
-                spent = variables.prices[need[0]] * commune.survival_demand[need[0]]
-                bought = commune.survival_demand[need[0]]
-
-            # Pode comprar <= Demanda & Pode comprar <= Oferta - situação 2, compra tudo o que consegue
-            elif (commune.money / variables.prices[need[0]] <= commune.survival_demand[need[0]]
-                  and commune.money / variables.prices[need[0]] <= variables.total_supply[need[0]]):
-                spent = commune.money
-                bought = round(commune.money / variables.prices[need[0]])
-
-            # O min(demanda, pode comprar) é maior que a oferta - situação 3, compra tudo que há no mercado
             else:
-                spent = variables.prices[need[0]] * variables.total_supply[need[0]]
-                bought = variables.total_supply[need[0]]
+                try:
+                    bought = min(commune.survival_demand[need[0]], floor(commune.money / variables.prices[need[0]]),
+                                 variables.total_supply[need[0]])
+                except ZeroDivisionError:
+                    bought = min(commune.survival_demand[need[0]], variables.total_supply[need[0]])
+
+                spent = bought * variables.prices[need[0]]
 
             commune.goods[need[0]] += bought
             commune.money -= spent
@@ -72,32 +67,20 @@ def exchange():
             variables.total_supply[need[0]] -= bought
 
         try:
-            for need in variables.goods[commune.produces][2]:
+            for need in variables.goods[commune.produces][1]:
 
-                if variables.prices[need[0]] == 0:
-                    spent = 0
-                    bought = commune.production_demand[need[0]]
-
-                elif variables.prices[need[0]] == float('inf'):
+                if variables.prices[need[0]] == float('inf'):
                     spent = 0
                     bought = 0
 
-                # Demanda <= Pode comprar & Demanda <= Oferta - situação 1, compra tudo que precisa
-                elif (commune.production_demand[need[0]] <= commune.money / variables.prices[need[0]]
-                      and commune.production_demand[need[0]] <= variables.total_supply[need[0]]):
-                    spent = variables.prices[need[0]] * commune.production_demand[need[0]]
-                    bought = commune.production_demand[need[0]]
-
-                # Pode comprar <= Demanda & Pode comprar <= Oferta - situação 2, compra tudo o que consegue
-                elif (commune.money / variables.prices[need[0]] <= commune.production_demand[need[0]]
-                      and commune.money / variables.prices[need[0]] <= variables.total_supply[need[0]]):
-                    spent = commune.money
-                    bought = round(commune.money / variables.prices[need[0]])
-
-                # O min(demanda, pode comprar) é maior que a oferta - situação 3, compra tudo que há no mercado
                 else:
-                    spent = variables.prices[need[0]] * variables.total_supply[need[0]]
-                    bought = variables.total_supply[need[0]]
+                    try:
+                        bought = min(commune.production_demand[need[0]],
+                                     floor(commune.money / variables.prices[need[0]]), variables.total_supply[need[0]])
+                    except ZeroDivisionError:
+                        bought = min(commune.production_demand[need[0]], variables.total_supply[need[0]])
+
+                    spent = bought * variables.prices[need[0]]
 
                 commune.goods[need[0]] += bought
                 commune.money -= spent
@@ -109,3 +92,14 @@ def exchange():
 
         except TypeError:
             pass
+
+    # As trocas cessaram, analise da movimentação dos estoques:
+    for commune in variables.communes:
+        # Se a comuna já tem mais ou o que produziria em um turno no inventário, ela vai diminuir a produção
+        if commune.goods[commune.produces] > variables.production_rate * commune.size and commune.compensation > 0:
+            commune.compensation -= 0.05
+
+        elif commune.goods[commune.produces] <= variables.production_rate * commune.size and commune.compensation < 1:
+            commune.compensation += 0.1
+
+        commune.compensation = round(commune.compensation, 2)

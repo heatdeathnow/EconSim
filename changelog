@@ -1,0 +1,9 @@
+Consertado bug que deixava comprar sem ter no mercado se o preço fosse zero e a oferta não o suficiente
+Cálculos de itens a comprar melhorados através de min()
+Corrigido oversight onde não se levava em consideração o que já tinha ao calcular demanda essencial e produtiva.
+Bug conhecido: população final terminar em 2 em vez de 0, esses 2 não conseguem morrer por algum motivo.
+
+Comunas produzem menos gradativamente se o seu estoque está acima do que produziriam em um turno.
+Porcentagens da comuna que migrarem para outra comuna levam consigo parte do dinheiro e dos bens.
+Velocidade monetária adicionada mais como uma gambiarra para poder alterar os preços facilmente.
+intake_rate e production_rate adicionados para mais facilmente alterar todos os bens ao mesmo tempo.

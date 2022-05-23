@@ -1,33 +1,52 @@
 import variables
+import math
 
 
 def emigrate():
-    flag = False
+    mean = 0
     for commune in variables.communes:
-        if commune.welfare > 0.5:
-            flag = True
+        mean += commune.welfare
+    mean /= len(variables.communes)
 
-    if flag:
-        for commune in variables.communes:
-            if commune.welfare < 0.5:
-                variables.to_migrate += round(commune.size * (commune.welfare / 0.5) * variables.migration_rate)
-                commune.size -= round(commune.size * (commune.welfare / 0.5) * variables.migration_rate)
+    for commune in variables.communes:
+        if commune.welfare < mean:
 
-            if commune.size < 0:
-                commune.size = 0
-                commune.welfare = 0.51
+            # Dinheiro * (Migrantes / Total) simplificado
+            variables.migrant_money += math.ceil(commune.money * variables.migration_rate)
+            commune.money -= math.ceil(commune.money * variables.migration_rate)
+
+            for count in range(len(variables.goods)):
+                variables.migrant_goods[count] += math.ceil(commune.goods[count] * variables.migration_rate)
+                commune.goods[count] -= math.ceil(commune.goods[count] * variables.migration_rate)
+
+            variables.to_migrate += math.ceil(commune.size * variables.migration_rate)
+            commune.size -= math.ceil(commune.size * variables.migration_rate)
+
+        if commune.size <= 0:
+            commune.size = 0
+            commune.welfare = 0.5
+            commune.goods = [0] * len(variables.goods)
 
 
 def immigrate():
-    havens = []
-    total = 0
+    mean = 0
+    havens = 0
     for commune in variables.communes:
-        if commune.welfare >= 0.5:
-            havens.append(commune)
-            total += commune.welfare
+        mean += commune.welfare
+    mean /= len(variables.communes)
 
-    if len(havens) > 0:
-        total /= len(havens)
-        for haven in havens:
-            haven.size += round(variables.to_migrate * (haven.welfare / total))
-            variables.to_migrate -= round(variables.to_migrate * (haven.welfare / total))
+    for commune in variables.communes:
+        if commune.welfare > mean:
+            havens += 1
+
+    for commune in variables.communes:
+        if commune.welfare > mean:
+            commune.money += math.ceil(variables.migrant_money / havens)
+            variables.migrant_money -= math.ceil(variables.migrant_money / havens)
+
+            for count in range(len(variables.goods)):
+                commune.goods[count] += math.ceil(variables.migrant_goods[count] / havens)
+                variables.migrant_goods[count] -= math.ceil(variables.migrant_goods[count] / havens)
+
+            commune.size += math.ceil(variables.to_migrate / havens)
+            variables.to_migrate -= math.ceil(variables.to_migrate / havens)

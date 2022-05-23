@@ -18,31 +18,34 @@ while True:
             commune.assess()
         market.assess()
 
-    if choice == 2:
+    elif choice == 2:
         for commune in variables.communes:
             commune.consume()
 
-    if choice == 3:
+    elif choice == 3:
         for commune in variables.communes:
             commune.produce()
 
-    if choice == 4:
+    elif choice == 4:
         for commune in variables.communes:
             commune.grow()
 
-    if choice == 5:
+    elif choice == 5:
         migration.emigrate()
 
-    if choice == 6:
+    elif choice == 6:
         migration.immigrate()
 
-    if choice == 7:
+    elif choice == 7:
         market.exchange()
 
     print()
     print('=' * 10 + ' MERCADO ' + '=' * 10)
     print()
     print(f'Base monetária: {variables.money_supply:.2f}')
+    print(f'População: {variables.population:.2f}')
+    print(f'Migrando...: {variables.to_migrate}')
+    print()
     for count in range(len(variables.goods)):
         print(f'Demanda de {variables.goods[count][0]}: {variables.total_demand[count]}')
         print(f'Oferta de {variables.goods[count][0]}: {variables.total_supply[count]}')
@@ -75,4 +78,5 @@ while True:
         print(f'População: {commune.size}')
         print(f'Dinheiro: {commune.money:.2f}')
         print(f'Bem-estar: {commune.welfare}')
+        print(f'Compensação: {commune.compensation}')
         print()
