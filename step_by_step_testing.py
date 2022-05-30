@@ -8,9 +8,9 @@ while True:
     print(f'2 - consumir')
     print(f'3 - produzir')
     print(f'4 - crescer')
-    print(f'5 - emigrar')
-    print(f'6 - imigrar')
-    print(f'7 - trocar')
+    print(f'5 - migrar')
+    print(f'6 - trocar')
+    print(f'7 - memorizar')
     choice = int(input('> '))
 
     if choice == 1:
@@ -31,25 +31,24 @@ while True:
             commune.grow()
 
     elif choice == 5:
-        migration.emigrate()
+        migration.migrate()
 
     elif choice == 6:
-        migration.immigrate()
+        market.exchange()
 
     elif choice == 7:
-        market.exchange()
+        market.record()
 
     print()
     print('=' * 10 + ' MERCADO ' + '=' * 10)
     print()
     print(f'Base monetária: {variables.money_supply:.2f}')
-    print(f'População: {variables.population:.2f}')
-    print(f'Migrando...: {variables.to_migrate}')
+    print(f'População: {variables.population}')
     print()
     for count in range(len(variables.goods)):
-        print(f'Demanda de {variables.goods[count][0]}: {variables.total_demand[count]}')
-        print(f'Oferta de {variables.goods[count][0]}: {variables.total_supply[count]}')
-        print(f'Preço de {variables.goods[count][0]}: {variables.prices[count]}')
+        print(f'Demanda de {variables.goods[count].name}: {variables.total_demand[count]}')
+        print(f'Oferta de {variables.goods[count].name}: {variables.total_supply[count]}')
+        print(f'Preço de {variables.goods[count].name}: {variables.prices[count] / 100:.2f}')
         print()
 
     print()
@@ -60,19 +59,19 @@ while True:
 
         print()
         for count in range(len(variables.goods)):
-            print(f'Quantidade de {variables.goods[count][0]}: {commune.goods[count]}')
+            print(f'Quantidade de {variables.goods[count].name}: {commune.goods[count]}')
 
         print()
         for count in range(len(variables.goods)):
-            print(f'Demanda essencial de {variables.goods[count][0]}: {commune.survival_demand[count]}')
+            print(f'Demanda essencial de {variables.goods[count].name}: {commune.survival_demand[count]}')
 
         print()
         for count in range(len(variables.goods)):
-            print(f'Demanda produtiva de {variables.goods[count][0]}: {commune.production_demand[count]}')
+            print(f'Demanda produtiva de {variables.goods[count].name}: {commune.production_demand[count]}')
 
         print()
         for count in range(len(variables.goods)):
-            print(f'Demanda agregada de {variables.goods[count][0]}: {commune.total_demand[count]}')
+            print(f'Demanda agregada de {variables.goods[count].name}: {commune.total_demand[count]}')
 
         print()
         print(f'População: {commune.size}')

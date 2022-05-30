@@ -1,3 +1,11 @@
 Tudo é medido em int
+
 dinheiro é medido em centavos
-bens são medidos em gramas
+
+bens são medidos em gramas (a esse ponto isso é não é mais verdade)
+
+problema conhecido: o dinheiro fica preso em uma comuna e pouco vai para a outra, o que dificulta as trocas.
+
+problema conhecido: quando há poucas pessoas sobrando, elas ficam num ciclo de migração eterno: a comuna de que emigram
+fica com bem-estar 0.5 e a imigram fica com algo menor que isso logo em seguida, fazendo com que ela migre de volta,
+assim nunca conseguindo morrer porque nunca fica abaixo do threshold por causa do reset
