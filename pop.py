@@ -1,7 +1,7 @@
 from __future__ import annotations
-from dataclasses import dataclass, field
+from goods import Goods, Stockpile
+from dataclasses import dataclass
 from typing import Optional, Self
-from prod import Goods, Stockpile
 from enum import Enum, auto
 from math import isclose
 
@@ -26,16 +26,15 @@ class Pop:
         - `stratum`: One of the stratum enumerated in the `Strata` `Enum`; e.g.: `Strata.LOWER`.
         - `size`: The amount of people in this specific population - can be a `float` or an `int`.
         - `job`: One of the jobs in the `Jobs` `Enum`. Stratas have jobs specific to them and cannot have jobs from another stratum.
-        - `stockpile`: A `Stockpile` object from the `prod` module. If nothing is passed, an empty stockpile is used.
     
     #### Additional attributes:
         - `promotes`: The stratum from the `Strata` `Enum` that this object's stratum promotes to; or `None` if does not promote.
     e.g.: `Strata.LOWER` promotes to `Strata.MIDDLE`.
+        - `stockpile`: a pointer to a `Stockpile` object within the parent object that this `Pop` object is composite of.
 
     #### Properties:
         - `consumption`: A `dict[Goods, float | int]` mapping the goods this `Pop` object needs and their respective needed amounts.
-    `Goods` is a `Enum` member from the `Goods` `Enum` in the `prod` module. Each stratum has different needs and respective amounts.
-        
+    `Goods` is a `Enum` member from the `Goods` `Enum` in the `goods` module. Each stratum has different needs and respective amounts.
         - `welfare`: A `float` ranging from 0.0 to 1.0 expressing how much of their needs this `Pop` object is capable of consuming.
     """
 
@@ -58,7 +57,6 @@ class Pop:
     stratum: Strata
     size: int | float
     job: Optional[Jobs] = None
-    stockpile: Stockpile = field(default_factory=Stockpile)
 
     @property
     def consumption(self) -> dict[Goods, int | float]:
@@ -82,7 +80,7 @@ class Pop:
         welfare /= len(Pop.NEEDS[self.stratum])
         return welfare
 
-    def tick(self) -> Optional[Pop]:
+    def tick(self) -> Optional[Pop]:  # type: ignore
         """
         Represents "one round" of the simulation for this `Pop` object or one `tick`.
 
@@ -94,18 +92,23 @@ class Pop:
         original_size = self.size
 
         for good, amount in self.consumption.items():
-            self.stockpile[good] -= min([Pop.NEEDS[self.stratum][good] * self.size, amount])
+            self.stockpile[good] -= min([Pop.NEEDS[self.stratum][good] * self.size, amount, self.stockpile[good]])
 
         if welfare >= Pop.WELFARE_THRESHOLD:
             self += self.size * Pop.GROWTH_RATE
 
             if self.promotes:
-                return pop_factory(original_size * Pop.PROMOTE_RATE, stratum = self.promotes)
+                return pop_factory(original_size * Pop.PROMOTE_RATE, self.stockpile, stratum = self.promotes)
             
         else:
             self -= self.size * Pop.GROWTH_RATE
 
+    def link_stockpile(self, stockpile: Stockpile):
+        self.stockpile = stockpile
+
     def __post_init__(self) -> None:
+        self.promotes: Optional[Strata]
+
         match self.stratum:
             case Strata.LOWER:
                 self.promotes = Strata.MIDDLE
@@ -150,18 +153,16 @@ class Pop:
 
         return self
 
-def pop_factory(size: int | float,
-                job: Optional[Jobs] = None,
-                stratum: Optional[Strata] = None,
-                stockpile: Optional[Stockpile] = None):
+def pop_factory(size: int | float, stockpile: Stockpile, job: Optional[Jobs] = None, stratum: Optional[Strata] = None) -> Pop:
     """
     ### `Pop` objects must only be created using this function!
 
     #### Parameters:
         - `size`: Required, must be `int` or `float`, and cannot be less than 0.
+        - `stockpile`: Required, this is expected to be the `Stockpile` object from the parent class
+    which this generated `Pop` object will be composite of. 
         - `job`: Optional¹ ², must be a `Jobs` member
         - `stratum`: Optional¹ ², must be a `Strata` member.
-        - `stockpile`: Optinal, must be a `Stockpile` object from the `prod` module.
     
     1 - Either the `job` or the `stratum` arguments must be passed. If the two are left empty, this function will raise an error.
 
@@ -169,11 +170,11 @@ def pop_factory(size: int | float,
     if it is not, this function will raise an error.
     """
 
-    if stockpile is None:
-        stockpile = Stockpile()
-
     if size < 0.0:
         raise ValueError(f'`Pop` object cannot have negative size.')
+
+    if not isinstance(stockpile, Stockpile):
+        raise TypeError('`stockpile` argument must be a `Stockpile` object.')
 
     if job is not None:
 
@@ -184,13 +185,19 @@ def pop_factory(size: int | float,
             raise ValueError(f'The job {job} is not appropriate for the {stratum.name} stratum.')
 
         elif job in Pop.JOBS[Strata.LOWER]:
-            return Pop(Strata.LOWER, size, job, stockpile)
+            pop = Pop(Strata.LOWER, size, job)
+            pop.link_stockpile(stockpile)
+            return pop
         
         elif job in Pop.JOBS[Strata.MIDDLE]:
-            return Pop(Strata.MIDDLE, size, job, stockpile)
+            pop = Pop(Strata.MIDDLE, size, job)
+            pop.link_stockpile(stockpile)
+            return pop
         
-        elif job in Pop.JOBS[Strata.UPPER	]:
-            return Pop(Strata.UPPER, size, job, stockpile)
+        elif job in Pop.JOBS[Strata.UPPER]:
+            pop = Pop(Strata.UPPER, size, job)
+            pop.link_stockpile(stockpile)
+            return pop
         
         else:
             raise ValueError(f'Although {job} exists, it is not associated with any strata.')
@@ -199,4 +206,6 @@ def pop_factory(size: int | float,
         raise ValueError(f'`pop_factory` requires at least one of the two arguments: `job` or `stratum`.')
 
     else:
-        return Pop(stratum, size, stockpile=stockpile)
+        pop = Pop(stratum, size)
+        pop.link_stockpile(stockpile)
+        return pop

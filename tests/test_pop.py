@@ -1,4 +1,4 @@
-from parameterized import parameterized
+from parameterized import parameterized  # type: ignore
 from unittest import TestCase, main
 from typing import Optional
 from pathlib import Path
@@ -11,7 +11,7 @@ if __name__ == '__main__':
     path.append(str(project_path))
 
 from pop import Pop, Jobs, Strata, pop_factory
-from prod import Goods, Stockpile
+from goods import Goods, Stockpile
 
 ############################################################################################################################################
 
@@ -19,33 +19,34 @@ class TestPop(TestCase):
 
     # testing `pop_factory` function and `Pop`'s `__init__` method. 
     @parameterized.expand([
-        (100, Jobs.FARMER, None, None, (100, Jobs.FARMER, Strata.LOWER)),
-        (100, Jobs.MINER, None, None, (100, Jobs.MINER, Strata.LOWER)),
-        (100, Jobs.SPECIALIST, None, None, (100, Jobs.SPECIALIST, Strata.MIDDLE)),
+        (100, Stockpile(), Jobs.FARMER, None, (100, Jobs.FARMER, Strata.LOWER)),
+        (100, Stockpile(), Jobs.MINER, None, (100, Jobs.MINER, Strata.LOWER)),
+        (100, Stockpile(), Jobs.SPECIALIST, None, (100, Jobs.SPECIALIST, Strata.MIDDLE)),
 
-        (100, None, Strata.LOWER, None, (100, None, Strata.LOWER)),
-        (100, None, Strata.MIDDLE, None, (100, None, Strata.MIDDLE)),
-        (100, None, Strata.UPPER, None, (100, None, Strata.UPPER)),
+        (100, Stockpile(), None, Strata.LOWER, (100, None, Strata.LOWER)),
+        (100, Stockpile(), None, Strata.MIDDLE, (100, None, Strata.MIDDLE)),
+        (100, Stockpile(), None, Strata.UPPER, (100, None, Strata.UPPER)),
 
-        (100, None, None, None, ValueError),
-        (-100, None, Strata.LOWER, None, ValueError),
-        (-100, Jobs.SPECIALIST, Strata.LOWER, None, ValueError),
+        (100, Stockpile(), None, None, ValueError),
+        (-100, Stockpile(), None, Strata.LOWER, ValueError),
+        (-100, Stockpile(), Jobs.SPECIALIST, Strata.LOWER, ValueError),
 
-        (100, Jobs.FARMER, None, Stockpile({Goods.WHEAT: 100}), (100, Jobs.FARMER, Strata.LOWER)),
-        (100, Jobs.FARMER, None, Stockpile({Goods.WHEAT: 100, Goods.IRON: 100}), (100, Jobs.FARMER, Strata.LOWER)),
+        (100, Stockpile({Goods.WHEAT: 100}), Jobs.FARMER, None, (100, Jobs.FARMER, Strata.LOWER)),
+        (100, Stockpile({Goods.WHEAT: 100, Goods.IRON: 100}), Jobs.FARMER, None, (100, Jobs.FARMER, Strata.LOWER)),
     ])
     def test_init(self,
                 size: int | float,
-                job: Jobs, stratum: Strata,
                 stockpile: Stockpile,
+                job: Jobs, 
+                stratum: Strata,
                 expected: type[Exception] | tuple[int | float, Jobs, Strata]) -> None:
         
         if isinstance(expected, type) and issubclass(expected, Exception):
             with self.assertRaises(expected):
-                pop_factory(size, job, stratum, stockpile)
+                pop_factory(size, stockpile, job, stratum)
 
         else:
-            pop = pop_factory(size, job, stratum, stockpile)
+            pop = pop_factory(size, stockpile, job, stratum)
 
             self.assertEqual(pop.size, expected[0])
             self.assertEqual(pop.job, expected[1])
@@ -53,12 +54,12 @@ class TestPop(TestCase):
 
     @parameterized.expand([
         # LOWER consumes 1 wheat, MIDDLE consumes 2 wheat and 1 iron.
-        (pop_factory(100, Jobs.FARMER), {Goods.WHEAT: 100}),
-        (pop_factory(100, Jobs.MINER), {Goods.WHEAT: 100}),
-        (pop_factory(100, Jobs.SPECIALIST), {Goods.WHEAT: 200, Goods.IRON: 100}),
+        (pop_factory(100, Stockpile(), Jobs.FARMER), {Goods.WHEAT: 100}),
+        (pop_factory(100, Stockpile(), Jobs.MINER), {Goods.WHEAT: 100}),
+        (pop_factory(100, Stockpile(), Jobs.SPECIALIST), {Goods.WHEAT: 200, Goods.IRON: 100}),
 
-        (pop_factory(50.55, Jobs.FARMER), {Goods.WHEAT: 50.55}),
-        (pop_factory(50.55, Jobs.SPECIALIST), {Goods.WHEAT: 101.1, Goods.IRON: 50.55}),
+        (pop_factory(50.55, Stockpile(), Jobs.FARMER), {Goods.WHEAT: 50.55}),
+        (pop_factory(50.55, Stockpile(), Jobs.SPECIALIST), {Goods.WHEAT: 101.1, Goods.IRON: 50.55}),
     ])
     def test_consumption(self, pop: Pop, expected: dict[Goods, int | float]) -> None:
         self.assertEqual(len(pop.consumption), len(expected))
@@ -69,32 +70,32 @@ class TestPop(TestCase):
 
     @parameterized.expand([
         # LOWER consumes 1 wheat, MIDDLE consumes 2 wheat and 1 iron.
-        (pop_factory(100, Jobs.FARMER, stockpile=Stockpile({Goods.WHEAT: 100})), 1.0),
-        (pop_factory(100, Jobs.FARMER, stockpile=Stockpile({Goods.WHEAT: 50})), 0.5),
-        (pop_factory(100, Jobs.FARMER), 0.0),
+        (pop_factory(100, Stockpile({Goods.WHEAT: 100}), Jobs.FARMER), 1.0),
+        (pop_factory(100, Stockpile({Goods.WHEAT: 50}), Jobs.FARMER), 0.5),
+        (pop_factory(100, Stockpile(), Jobs.FARMER), 0.0),
 
-        (pop_factory(100, Jobs.SPECIALIST, stockpile=Stockpile({Goods.WHEAT: 200, Goods.IRON: 100})), 1.0),
-        (pop_factory(100, Jobs.SPECIALIST, stockpile=Stockpile({Goods.WHEAT: 200})), 0.5),
-        (pop_factory(100, Jobs.SPECIALIST, stockpile=Stockpile({Goods.IRON: 100})), 0.5),
-        (pop_factory(100, Jobs.SPECIALIST, stockpile=Stockpile({Goods.WHEAT: 100, Goods.IRON: 50})), 0.5),
-        (pop_factory(100, Jobs.SPECIALIST), 0.0),
+        (pop_factory(100, Stockpile({Goods.WHEAT: 200, Goods.IRON: 100}), Jobs.SPECIALIST, ), 1.0),
+        (pop_factory(100, Stockpile({Goods.WHEAT: 200}), Jobs.SPECIALIST), 0.5),
+        (pop_factory(100, Stockpile({Goods.IRON: 100}), Jobs.SPECIALIST), 0.5),
+        (pop_factory(100, Stockpile({Goods.WHEAT: 100, Goods.IRON: 50}), Jobs.SPECIALIST), 0.5),
+        (pop_factory(100, Stockpile(), Jobs.SPECIALIST), 0.0),
     ])
     def test_welfare(self, pop: Pop, expected: float) -> None:
         self.assertAlmostEqual(pop.welfare, expected)
 
     @parameterized.expand([
         # Welfare_threshold = 0.75; growth_rate = 0.05; promote_rate = 0.01
-        (pop_factory(100, Jobs.FARMER, stockpile=Stockpile({Goods.WHEAT: 100})), 105, pop_factory(1, None, Strata.MIDDLE), Stockpile()),
-        (pop_factory(100, Jobs.FARMER, stockpile=Stockpile({Goods.WHEAT: 75})), 105, pop_factory(1, None, Strata.MIDDLE), Stockpile()),
-        (pop_factory(100, Jobs.FARMER, stockpile=Stockpile({Goods.WHEAT: 74})), 95, None, Stockpile()),
+        (pop_factory(100, Stockpile({Goods.WHEAT: 100}), Jobs.FARMER), 105, pop_factory(1, Stockpile(), None, Strata.MIDDLE), Stockpile()),
+        (pop_factory(100, Stockpile({Goods.WHEAT: 75}), Jobs.FARMER), 105, pop_factory(1, Stockpile(), None, Strata.MIDDLE), Stockpile()),
+        (pop_factory(100, Stockpile({Goods.WHEAT: 74}), Jobs.FARMER), 95, None, Stockpile()),
 
-        (pop_factory(100, Jobs.SPECIALIST, stockpile=Stockpile({Goods.WHEAT: 200, Goods.IRON: 100})), 105, None, Stockpile()),
-        (pop_factory(100, Jobs.SPECIALIST, stockpile=Stockpile({Goods.WHEAT: 100, Goods.IRON: 100})), 105, None, Stockpile()),
-        (pop_factory(100, Jobs.SPECIALIST, stockpile=Stockpile({Goods.WHEAT: 50, Goods.IRON: 50})), 95, None, Stockpile()),
+        (pop_factory(100, Stockpile({Goods.WHEAT: 200, Goods.IRON: 100}), Jobs.SPECIALIST), 105, None, Stockpile()),
+        (pop_factory(100, Stockpile({Goods.WHEAT: 100, Goods.IRON: 100}), Jobs.SPECIALIST), 105, None, Stockpile()),
+        (pop_factory(100, Stockpile({Goods.WHEAT: 50, Goods.IRON: 50}), Jobs.SPECIALIST), 95, None, Stockpile()),
 
-        (pop_factory(100, Jobs.FARMER, stockpile=Stockpile({Goods.WHEAT: 200})), 105, pop_factory(1, None, Strata.MIDDLE), 
+        (pop_factory(100, Stockpile({Goods.WHEAT: 200}), Jobs.FARMER), 105, pop_factory(1, Stockpile(), None, Strata.MIDDLE), 
         Stockpile({Goods.WHEAT: 100})),
-        (pop_factory(100, Jobs.SPECIALIST, stockpile=Stockpile({Goods.WHEAT: 300, Goods.IRON: 150})), 105, None, 
+        (pop_factory(100, Stockpile({Goods.WHEAT: 300, Goods.IRON: 150}), Jobs.SPECIALIST), 105, None, 
         Stockpile({Goods.WHEAT: 100, Goods.IRON: 50})),
     ])
     def test_tick(self, pop: Pop, expected_size: int | float, expected_return: Optional[Pop], expected_stockpile: Stockpile) -> None:
