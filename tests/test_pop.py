@@ -1,19 +1,8 @@
-from parameterized import parameterized  # type: ignore
-from unittest import TestCase, main
+from parameterized import parameterized
+from unittest import TestCase
 from typing import Optional
-from pathlib import Path
-from sys import path
-
-
-if __name__ == '__main__':
-    tests_path = Path(__file__).parent
-    project_path = (tests_path / '..').resolve()
-    path.append(str(project_path))
-
-from pop import Pop, Jobs, Strata, pop_factory
-from goods import Goods, Stockpile
-
-############################################################################################################################################
+from source.pop import Pop, Jobs, Strata, pop_factory
+from source.goods import Goods, Stockpile
 
 class TestPop(TestCase):
 
@@ -33,6 +22,9 @@ class TestPop(TestCase):
 
         (100, Stockpile({Goods.WHEAT: 100}), Jobs.FARMER, None, (100, Jobs.FARMER, Strata.LOWER)),
         (100, Stockpile({Goods.WHEAT: 100, Goods.IRON: 100}), Jobs.FARMER, None, (100, Jobs.FARMER, Strata.LOWER)),
+
+        (0.001, Stockpile(), Jobs.FARMER, None, (0.001, Jobs.FARMER, Strata.LOWER)),
+        (0.0001, Stockpile(), Jobs.FARMER, None, (0, Jobs.FARMER, Strata.LOWER)),
     ])
     def test_init(self,
                 size: int | float,
@@ -79,6 +71,9 @@ class TestPop(TestCase):
         (pop_factory(100, Stockpile({Goods.IRON: 100}), Jobs.SPECIALIST), 0.5),
         (pop_factory(100, Stockpile({Goods.WHEAT: 100, Goods.IRON: 50}), Jobs.SPECIALIST), 0.5),
         (pop_factory(100, Stockpile(), Jobs.SPECIALIST), 0.0),
+
+        (pop_factory(0, Stockpile(), Jobs.FARMER), 0.0),
+        (pop_factory(0, Stockpile({Goods.WHEAT: 100}), Jobs.FARMER), 0.0),
     ])
     def test_welfare(self, pop: Pop, expected: float) -> None:
         self.assertAlmostEqual(pop.welfare, expected)
@@ -98,8 +93,8 @@ class TestPop(TestCase):
         (pop_factory(100, Stockpile({Goods.WHEAT: 300, Goods.IRON: 150}), Jobs.SPECIALIST), 105, None, 
         Stockpile({Goods.WHEAT: 100, Goods.IRON: 50})),
     ])
-    def test_tick(self, pop: Pop, expected_size: int | float, expected_return: Optional[Pop], expected_stockpile: Stockpile) -> None:
-        returned = pop.tick()
+    def test_consume(self, pop: Pop, expected_size: int | float, expected_return: Optional[Pop], expected_stockpile: Stockpile) -> None:
+        returned = pop.consume()
 
         self.assertAlmostEqual(pop.size, expected_size)
 
@@ -118,6 +113,3 @@ class TestPop(TestCase):
         for (real_good, real_amount), (expected_good, expected_amount) in zip(pop.stockpile.items(), expected_stockpile.items()):
             self.assertEqual(real_good, expected_good)
             self.assertAlmostEqual(real_amount, expected_amount)
-
-if __name__ == '__main__':
-    main()

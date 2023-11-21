@@ -1,15 +1,6 @@
-from parameterized import parameterized  # type: ignore
-from unittest import TestCase, main
-from pathlib import Path
-from sys import path
-
-
-if __name__ == '__main__':
-    tests_path = Path(__file__).parent
-    project_path = (tests_path / '..').resolve()
-    path.append(str(project_path))
-
-from goods import Goods, Stockpile
+from parameterized import parameterized
+from unittest import TestCase
+from source.goods import Goods, Stockpile
 
 class TestStockpile(TestCase):
     
@@ -95,6 +86,3 @@ class TestStockpile(TestCase):
             for (real_good, real_amount), (expected_good, expected_amount) in zip(stockpile.items(), expected.items()):
                 self.assertEqual(real_good, expected_good)
                 self.assertAlmostEqual(real_amount, expected_amount)
-
-if __name__ == '__main__':
-    main()
