@@ -1,4 +1,4 @@
-de## EconSim
+## EconSim
 Attemping to create a simulation of an economy similar to that of Victoria II. This will be done entirely in Python.
 
 ### Modus Operandi
