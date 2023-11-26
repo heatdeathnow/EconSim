@@ -2,7 +2,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Optional, Sequence
 from source.goods import Goods, Stockpile
-from source.pop import Jobs, Pop, pop_factory
+from source.pop import Jobs, Pop, PopFactory
 
 class CannotEmploy(Exception):
     """
@@ -40,17 +40,17 @@ class Extractor:
                 return pop
 
             else:
-                employed = min(pop.size, labor_demand[pop.job])
+                employed = PopFactory.job(pop.job, min(pop.size, labor_demand[pop.job]), pop.welfare)
                 self.workforce.pops[pop.job] += employed
                 pop -= employed
                 return pop
         
         else:
-            for job in Pop.JOBS[pop.stratum]:
+            for job in pop.stratum.jobs:
                 if job in labor_demand:
                     
-                    employed = min(pop.size, labor_demand[job])
-                    self.workforce.pops[job] += pop_factory(employed, self.stockpile, job)
+                    employed = PopFactory.job(job, min(pop.size, labor_demand[job]), pop.welfare)
+                    self.workforce.pops[job] += employed
                     pop -= employed
 
             return pop
@@ -72,7 +72,7 @@ class Workforce:
         demand = Stockpile()
 
         for pop in self.pops.values():
-            for good, amount in pop.consumption.items():
+            for good, amount in pop.calc_consumption().items():
                 demand[good] += amount
         
         return demand
@@ -165,7 +165,7 @@ def workforce_factory(needed: dict[Jobs, float | int], stockpile: Stockpile, pop
         raise TypeError(f'{stockpile} is not a `Stockpile` object.')
     
     total_size = 0.0
-    pops_arg = {job: pop_factory(0, stockpile, job) for job in needed}
+    pops_arg = {job: PopFactory.job(job, 0) for job in needed}
     if pops:
         for pop in pops:
             if not isinstance(pop, Pop):

@@ -14,4 +14,3 @@ for directory in tests_path.iterdir():
 
         suite = loader.loadTestsFromModule(module)
         runner.run(suite)
-        

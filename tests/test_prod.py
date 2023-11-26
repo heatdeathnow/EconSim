@@ -4,30 +4,30 @@ from unittest import TestCase
 
 from pyparsing import Opt
 from source.prod import CannotEmploy, Extractor, Workforce, extractor_factory, workforce_factory
-from source.pop import Jobs, Pop, Strata, pop_factory
+from source.pop import Jobs, Pop, Strata, PopFactory
 from source.goods import Goods, Stockpile
 
 class TestWorkforce(TestCase):
 
     @parameterized.expand([
         ({Jobs.FARMER: 100, Jobs.SPECIALIST: 10},
-         {Jobs.FARMER: pop_factory(0, Stockpile(), Jobs.FARMER), Jobs.SPECIALIST: pop_factory(0, Stockpile(), Jobs.SPECIALIST)},
+         {Jobs.FARMER: PopFactory.job(Jobs.FARMER, 0), Jobs.SPECIALIST: PopFactory.job(Jobs.SPECIALIST, 0)},
           110),
         
         ({Jobs.FARMER: 100},
-         {Jobs.FARMER: pop_factory(0, Stockpile(), Jobs.FARMER)},
+         {Jobs.FARMER: PopFactory.job(Jobs.FARMER, 0)},
           100),
         
         ({Jobs.FARMER: 0},
-         {Jobs.FARMER: pop_factory(0, Stockpile(), Jobs.FARMER)},
+         {Jobs.FARMER: PopFactory.job(Jobs.FARMER, 0)},
           100, ValueError),
         
         ({Jobs.FARMER: -100},
-         {Jobs.FARMER: pop_factory(0, Stockpile(), Jobs.FARMER)},
+         {Jobs.FARMER: PopFactory.job(Jobs.FARMER, 0)},
           100, ValueError),
         
         ({'farmer': 0},
-         {Jobs.FARMER: pop_factory(0, Stockpile(), Jobs.FARMER)},
+         {Jobs.FARMER: PopFactory.job(Jobs.FARMER, 0)},
           100, TypeError),
         ])
     def test_init_no_pops(self, needed: dict[Jobs, int | float], 
@@ -51,19 +51,19 @@ class TestWorkforce(TestCase):
     
     @parameterized.expand([
         ({Jobs.FARMER: 100, Jobs.SPECIALIST: 10},
-         [pop_factory(50, Stockpile(), Jobs.FARMER), pop_factory(50, Stockpile(), Jobs.SPECIALIST)],
+         [PopFactory.job(Jobs.FARMER, 50), PopFactory.job(Jobs.SPECIALIST, 50)],
          110, 100),
 
         ({Jobs.FARMER: 100, Jobs.SPECIALIST: 10},
-         [pop_factory(60, Stockpile(), Jobs.FARMER), pop_factory(50, Stockpile(), Jobs.SPECIALIST)],
+         [PopFactory.job(Jobs.FARMER, 60), PopFactory.job(Jobs.SPECIALIST, 50)],
          110, 110),
         
         ({Jobs.FARMER: 100, Jobs.SPECIALIST: 10},
-         [pop_factory(50, Stockpile(), Jobs.FARMER), pop_factory(50, Stockpile(), Jobs.MINER)],
+         [PopFactory.job(Jobs.FARMER, 50), PopFactory.job(Jobs.MINER, 50)],
          0, 0, ValueError),
 
         ({Jobs.FARMER: 100, Jobs.SPECIALIST: 10},
-         [pop_factory(61, Stockpile(), Jobs.FARMER), pop_factory(50, Stockpile(), Jobs.SPECIALIST)],
+         [PopFactory.job(Jobs.FARMER, 61), PopFactory.job(Jobs.SPECIALIST, 50)],
          0, 0, ValueError)
         ])
     def test_init_pops(self, needed: dict[Jobs, int | float],
@@ -82,19 +82,19 @@ class TestWorkforce(TestCase):
 
     @parameterized.expand([
         (workforce_factory({Jobs.FARMER: 100, Jobs.SPECIALIST: 10}, Stockpile(),
-                           [pop_factory(100, Stockpile(), Jobs.FARMER), pop_factory(10, Stockpile(), Jobs.SPECIALIST)]),
+                           [PopFactory.job(Jobs.FARMER, 100), PopFactory.job(Jobs.SPECIALIST, 10)]),
                            1.0),
 
         (workforce_factory({Jobs.FARMER: 100, Jobs.SPECIALIST: 10}, Stockpile(),
-                           [pop_factory(100, Stockpile(), Jobs.FARMER)]),
+                           [PopFactory.job(Jobs.FARMER, 100)]),
                            0.5),
         
         (workforce_factory({Jobs.FARMER: 100, Jobs.SPECIALIST: 10}, Stockpile(),
-                           [pop_factory(50, Stockpile(), Jobs.FARMER), pop_factory(10, Stockpile(), Jobs.SPECIALIST)]),
+                           [PopFactory.job(Jobs.FARMER, 50), PopFactory.job(Jobs.SPECIALIST, 10)]),
                            0.75),
         
         (workforce_factory({Jobs.FARMER: 100, Jobs.SPECIALIST: 10}, Stockpile(),
-                           [pop_factory(10, Stockpile(), Jobs.SPECIALIST)]),
+                           [PopFactory.job(Jobs.SPECIALIST, 10)]),
                            0.50),
         
         (workforce_factory({Jobs.FARMER: 100, Jobs.SPECIALIST: 10}, Stockpile()),
@@ -107,23 +107,23 @@ class TestWorkforce(TestCase):
         (workforce_factory({Jobs.FARMER: 100, Jobs.SPECIALIST: 10}, Stockpile()),
          {Jobs.FARMER: 100, Jobs.SPECIALIST: 10}),
 
-        (workforce_factory({Jobs.FARMER: 100, Jobs.SPECIALIST: 10}, Stockpile(), [pop_factory(100, Stockpile(), Jobs.FARMER)]),
+        (workforce_factory({Jobs.FARMER: 100, Jobs.SPECIALIST: 10}, Stockpile(), [PopFactory.job(Jobs.FARMER, 100)]),
          {Jobs.SPECIALIST: 10}),
         
-        (workforce_factory({Jobs.FARMER: 100, Jobs.SPECIALIST: 10}, Stockpile(), [pop_factory(10, Stockpile(), Jobs.SPECIALIST)]),
+        (workforce_factory({Jobs.FARMER: 100, Jobs.SPECIALIST: 10}, Stockpile(), [PopFactory.job(Jobs.SPECIALIST, 10)]),
          {Jobs.FARMER: 100}),
 
         (workforce_factory({Jobs.FARMER: 100, Jobs.SPECIALIST: 10}, Stockpile(), 
-                           [pop_factory(50, Stockpile(), Jobs.FARMER), pop_factory(5, Stockpile(), Jobs.SPECIALIST)]),
+                           [PopFactory.job(Jobs.FARMER, 50), PopFactory.job(Jobs.SPECIALIST, 5)]),
          {Jobs.FARMER: 50, Jobs.SPECIALIST: 5}),
         
         (workforce_factory({Jobs.FARMER: 100, Jobs.SPECIALIST: 10}, Stockpile(), 
-                           [pop_factory(100, Stockpile(), Jobs.FARMER), pop_factory(10, Stockpile(), Jobs.SPECIALIST)]), {}),
+                           [PopFactory.job(Jobs.FARMER, 100), PopFactory.job(Jobs.SPECIALIST, 10)]), {}),
         
-        (workforce_factory({Jobs.FARMER: 100, Jobs.SPECIALIST: 10}, Stockpile(), [pop_factory(105, Stockpile(), Jobs.FARMER)]),
+        (workforce_factory({Jobs.FARMER: 100, Jobs.SPECIALIST: 10}, Stockpile(), [PopFactory.job(Jobs.FARMER, 105)]),
          {Jobs.SPECIALIST: 5}),
         
-        (workforce_factory({Jobs.FARMER: 100, Jobs.SPECIALIST: 10}, Stockpile(), [pop_factory(20, Stockpile(), Jobs.SPECIALIST)]),
+        (workforce_factory({Jobs.FARMER: 100, Jobs.SPECIALIST: 10}, Stockpile(), [PopFactory.job(Jobs.SPECIALIST, 20)]),
          {Jobs.FARMER: 90})
         ])
     def test_labor_demand(self, workforce: Workforce, expected_demand: dict[Jobs, int | float]):
@@ -138,14 +138,14 @@ class TestWorkforce(TestCase):
         # MIDDLE: {Goods.WHEAT: 2.0, Goods.IRON: 1.0}
 
         (workforce_factory({Jobs.FARMER: 100, Jobs.SPECIALIST: 10}, Stockpile(),
-                           [pop_factory(100, Stockpile(), Jobs.FARMER), pop_factory(10, Stockpile(), Jobs.SPECIALIST)]),
+                           [PopFactory.job(Jobs.FARMER, 100), PopFactory.job(Jobs.SPECIALIST, 10)]),
         Stockpile({Goods.WHEAT: 100 + 20, Goods.IRON: 10})),
 
         (workforce_factory({Jobs.FARMER: 100, Jobs.SPECIALIST: 10}, Stockpile(),
-                           [pop_factory(50, Stockpile(), Jobs.FARMER), pop_factory(5, Stockpile(), Jobs.SPECIALIST)]),
+                           [PopFactory.job(Jobs.FARMER, 50), PopFactory.job(Jobs.SPECIALIST, 5)]),
         Stockpile({Goods.WHEAT: 50 + 10, Goods.IRON: 5})),
 
-        (workforce_factory({Jobs.FARMER: 100, Jobs.SPECIALIST: 10}, Stockpile(), [pop_factory(100, Stockpile(), Jobs.FARMER)]), 
+        (workforce_factory({Jobs.FARMER: 100, Jobs.SPECIALIST: 10}, Stockpile(), [PopFactory.job(Jobs.FARMER, 100)]), 
          Stockpile({Goods.WHEAT: 100})),
 
         (workforce_factory({Jobs.FARMER: 100, Jobs.SPECIALIST: 10}, Stockpile()), 
@@ -163,23 +163,23 @@ class TestWorkforce(TestCase):
         # MIDDLE: {Goods.WHEAT: 2.0, Goods.IRON: 1.0}
 
         (workforce_factory({Jobs.FARMER: 100, Jobs.SPECIALIST: 10}, Stockpile(),
-                           [pop_factory(100, Stockpile(), Jobs.FARMER), pop_factory(10, Stockpile(), Jobs.SPECIALIST)]),
+                           [PopFactory.job(Jobs.FARMER, 100), PopFactory.job(Jobs.SPECIALIST, 10)]),
         Stockpile({Goods.WHEAT: 100 + 20, Goods.IRON: 10})),
 
         (workforce_factory({Jobs.FARMER: 100, Jobs.SPECIALIST: 10}, Stockpile({Goods.WHEAT: 25, Goods.IRON: 2}),
-                           [pop_factory(100, Stockpile(), Jobs.FARMER), pop_factory(10, Stockpile(), Jobs.SPECIALIST)]),
+                           [PopFactory.job(Jobs.FARMER, 100), PopFactory.job(Jobs.SPECIALIST, 10)]),
         Stockpile({Goods.WHEAT: 95, Goods.IRON: 8})),
 
         (workforce_factory({Jobs.FARMER: 100, Jobs.SPECIALIST: 10}, Stockpile({Goods.WHEAT: 120, Goods.IRON: 10}),
-                           [pop_factory(100, Stockpile(), Jobs.FARMER), pop_factory(10, Stockpile(), Jobs.SPECIALIST)]),
+                           [PopFactory.job(Jobs.FARMER, 100), PopFactory.job(Jobs.SPECIALIST, 10)]),
         Stockpile()),
 
         (workforce_factory({Jobs.FARMER: 100, Jobs.SPECIALIST: 10}, Stockpile({Goods.WHEAT: 500, Goods.IRON: 500}),
-                           [pop_factory(100, Stockpile(), Jobs.FARMER), pop_factory(10, Stockpile(), Jobs.SPECIALIST)]),
+                           [PopFactory.job(Jobs.FARMER, 100), PopFactory.job(Jobs.SPECIALIST, 10)]),
         Stockpile()),
 
         (workforce_factory({Jobs.FARMER: 100, Jobs.SPECIALIST: 10}, Stockpile({Goods.IRON: 500}),
-                           [pop_factory(100, Stockpile(), Jobs.FARMER), pop_factory(10, Stockpile(), Jobs.SPECIALIST)]),
+                           [PopFactory.job(Jobs.FARMER, 100), PopFactory.job(Jobs.SPECIALIST, 10)]),
         Stockpile({Goods.WHEAT: 120})),
         ])
     def test_effective_goods_demand(self, workforce: Workforce, expected_demand: Stockpile):
@@ -198,27 +198,27 @@ class TestExtractor(TestCase):
         
         (extractor_factory(
             workforce_factory({Jobs.FARMER: 100, Jobs.SPECIALIST: 10}, Stockpile(),
-                              [pop_factory(100, Stockpile(), Jobs.FARMER)]),
+                              [PopFactory.job(Jobs.FARMER, 100)]),
             Goods.WHEAT, Stockpile()), Stockpile({Goods.WHEAT: 1.25 * 100 * 0.5})),
         
         (extractor_factory(
             workforce_factory({Jobs.FARMER: 100, Jobs.SPECIALIST: 10}, Stockpile(),
-                              [pop_factory(100, Stockpile(), Jobs.FARMER), pop_factory(10, Stockpile(), Jobs.SPECIALIST)]),
+                              [PopFactory.job(Jobs.FARMER, 100), PopFactory.job(Jobs.SPECIALIST, 10)]),
             Goods.WHEAT, Stockpile()), Stockpile({Goods.WHEAT: 1.25 * 110 * 1})),
         
         (extractor_factory(
             workforce_factory({Jobs.FARMER: 100, Jobs.SPECIALIST: 10}, Stockpile(),
-                              [pop_factory(10, Stockpile(), Jobs.SPECIALIST)]),
+                              [PopFactory.job(Jobs.SPECIALIST, 10)]),
             Goods.WHEAT, Stockpile()), Stockpile({Goods.WHEAT: 1.25 * 10 * 0.5})),
         
         (extractor_factory(
             workforce_factory({Jobs.FARMER: 100, Jobs.SPECIALIST: 10}, Stockpile(),
-                              [pop_factory(50, Stockpile(), Jobs.FARMER), pop_factory(5, Stockpile(), Jobs.SPECIALIST)]),
+                              [PopFactory.job(Jobs.FARMER, 50), PopFactory.job(Jobs.SPECIALIST, 5)]),
             Goods.WHEAT, Stockpile()), Stockpile({Goods.WHEAT: 1.25 * 55 * 0.5})),
         
         (extractor_factory(
             workforce_factory({Jobs.FARMER: 100, Jobs.SPECIALIST: 10}, Stockpile(),
-                              [pop_factory(75, Stockpile(), Jobs.FARMER), pop_factory(5, Stockpile(), Jobs.SPECIALIST)]),
+                              [PopFactory.job(Jobs.FARMER, 75), PopFactory.job(Jobs.SPECIALIST, 5)]),
             Goods.WHEAT, Stockpile()), Stockpile({Goods.WHEAT: 1.25 * 80 * 0.625})),
     ])
     def test_produces(self, extractor: Extractor, expected: Stockpile):
@@ -231,52 +231,52 @@ class TestExtractor(TestCase):
 
     @parameterized.expand([
         (extractor_factory(workforce_factory({Jobs.FARMER: 90, Jobs.SPECIALIST: 10}, Stockpile(),
-                                             [pop_factory(45, Stockpile(), Jobs.FARMER), pop_factory(5, Stockpile(), Jobs.SPECIALIST)]),
+                                             [PopFactory.job(Jobs.FARMER, 45), PopFactory.job(Jobs.SPECIALIST, 5)]),
                            Goods.WHEAT, Stockpile()),
-         pop_factory(10, Stockpile(), Jobs.FARMER),
-         {Jobs.FARMER: pop_factory(55, Stockpile(), Jobs.FARMER), Jobs.SPECIALIST: pop_factory(5, Stockpile(), Jobs.SPECIALIST)},
-         pop_factory(0, Stockpile(), Jobs.FARMER)),
+         PopFactory.job(Jobs.FARMER, 10),
+         {Jobs.FARMER: PopFactory.job(Jobs.FARMER, 55), Jobs.SPECIALIST: PopFactory.job(Jobs.SPECIALIST, 5)},
+         PopFactory.job(Jobs.FARMER)),
 
         (extractor_factory(workforce_factory({Jobs.FARMER: 90, Jobs.SPECIALIST: 10}, Stockpile(),
-                                             [pop_factory(45, Stockpile(), Jobs.FARMER), pop_factory(5, Stockpile(), Jobs.SPECIALIST)]),
+                                             [PopFactory.job(Jobs.FARMER, 45), PopFactory.job(Jobs.SPECIALIST, 5)]),
                            Goods.WHEAT, Stockpile()),
-         pop_factory(1, Stockpile(), Jobs.SPECIALIST),
-         {Jobs.FARMER: pop_factory(45, Stockpile(), Jobs.FARMER), Jobs.SPECIALIST: pop_factory(6, Stockpile(), Jobs.SPECIALIST)},
-         pop_factory(0, Stockpile(), Jobs.SPECIALIST)),
+         PopFactory.job(Jobs.SPECIALIST, 1),
+         {Jobs.FARMER: PopFactory.job(Jobs.FARMER, 45), Jobs.SPECIALIST: PopFactory.job(Jobs.SPECIALIST, 6)},
+         PopFactory.job(Jobs.SPECIALIST)),
         
         (extractor_factory(workforce_factory({Jobs.FARMER: 90, Jobs.SPECIALIST: 10}, Stockpile(),
-                                             [pop_factory(45, Stockpile(), Jobs.FARMER), pop_factory(5, Stockpile(), Jobs.SPECIALIST)]),
+                                             [PopFactory.job(Jobs.FARMER, 45), PopFactory.job(Jobs.SPECIALIST, 5)]),
                            Goods.WHEAT, Stockpile()),
-         pop_factory(10, Stockpile(), stratum=Strata.LOWER),
-         {Jobs.FARMER: pop_factory(55, Stockpile(), Jobs.FARMER), Jobs.SPECIALIST: pop_factory(5, Stockpile(), Jobs.SPECIALIST)},
-         pop_factory(0, Stockpile(), stratum=Strata.LOWER)),
+         PopFactory.stratum(Strata.LOWER, 10),
+         {Jobs.FARMER: PopFactory.job(Jobs.FARMER, 55), Jobs.SPECIALIST: PopFactory.job(Jobs.SPECIALIST, 5)},
+         PopFactory.stratum(Strata.LOWER)),
         
         (extractor_factory(workforce_factory({Jobs.FARMER: 90, Jobs.SPECIALIST: 10}, Stockpile(),
-                                             [pop_factory(45, Stockpile(), Jobs.FARMER), pop_factory(5, Stockpile(), Jobs.SPECIALIST)]),
+                                             [PopFactory.job(Jobs.FARMER, 45), PopFactory.job(Jobs.SPECIALIST, 5)]),
                            Goods.WHEAT, Stockpile()),
-         pop_factory(1, Stockpile(), stratum=Strata.MIDDLE),
-         {Jobs.FARMER: pop_factory(45, Stockpile(), Jobs.FARMER), Jobs.SPECIALIST: pop_factory(6, Stockpile(), Jobs.SPECIALIST)},
-         pop_factory(0, Stockpile(), stratum=Strata.MIDDLE)),
+         PopFactory.stratum(Strata.MIDDLE, 1),
+         {Jobs.FARMER: PopFactory.job(Jobs.FARMER, 45), Jobs.SPECIALIST: PopFactory.job(Jobs.SPECIALIST, 6)},
+         PopFactory.stratum(Strata.MIDDLE)),
 
         (extractor_factory(workforce_factory({Jobs.FARMER: 90, Jobs.SPECIALIST: 10}, Stockpile(),
-                                             [pop_factory(45, Stockpile(), Jobs.FARMER), pop_factory(5, Stockpile(), Jobs.SPECIALIST)]),
+                                             [PopFactory.job(Jobs.FARMER, 45), PopFactory.job(Jobs.SPECIALIST, 5)]),
                            Goods.WHEAT, Stockpile()),
-         pop_factory(10, Stockpile(), Jobs.MINER),
+         PopFactory.job(Jobs.MINER, 10),
          ValueError, None),
         
         (extractor_factory(workforce_factory({Jobs.FARMER: 90, Jobs.SPECIALIST: 10}, Stockpile(),
-                                             [pop_factory(45, Stockpile(), Jobs.FARMER), pop_factory(5, Stockpile(), Jobs.SPECIALIST)]),
+                                             [PopFactory.job(Jobs.FARMER, 45), PopFactory.job(Jobs.SPECIALIST, 5)]),
                            Goods.WHEAT, Stockpile()),
-         pop_factory(50, Stockpile(), Jobs.FARMER),
-         {Jobs.FARMER: pop_factory(90, Stockpile(), Jobs.FARMER), Jobs.SPECIALIST: pop_factory(5, Stockpile(), Jobs.SPECIALIST)},
-         pop_factory(5, Stockpile(), Jobs.FARMER)),
+         PopFactory.job(Jobs.FARMER, 50),
+         {Jobs.FARMER: PopFactory.job(Jobs.FARMER, 90), Jobs.SPECIALIST: PopFactory.job(Jobs.SPECIALIST, 5)},
+         PopFactory.job(Jobs.FARMER, 5)),
         
         (extractor_factory(workforce_factory({Jobs.FARMER: 50, Jobs.MINER: 50}, Stockpile(),
-                                             [pop_factory(25, Stockpile(), Jobs.FARMER), pop_factory(25, Stockpile(), Jobs.MINER)]),
+                                             [PopFactory.job(Jobs.FARMER, 25), PopFactory.job(Jobs.MINER, 25)]),
                            Goods.WHEAT, Stockpile()),
-         pop_factory(100, Stockpile(), stratum=Strata.LOWER),
-         {Jobs.FARMER: pop_factory(50, Stockpile(), Jobs.FARMER), Jobs.MINER: pop_factory(50, Stockpile(), Jobs.MINER)},
-         pop_factory(50, Stockpile(), stratum=Strata.LOWER)),
+         PopFactory.stratum(Strata.LOWER, 100),
+         {Jobs.FARMER: PopFactory.job(Jobs.FARMER, 50), Jobs.MINER: PopFactory.job(Jobs.MINER, 50)},
+         PopFactory.stratum(Strata.LOWER, 50)),
     ])
     def test_employ(self, extractor: Extractor, 
                     to_employ: Pop, 

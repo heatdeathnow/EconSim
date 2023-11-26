@@ -35,7 +35,7 @@ class Stockpile(dict):
     This is so it can use the `+=` in any circumstances.
     """
 
-    def fix(self) -> None:
+    def __fix(self) -> None:
         for key, value in self.copy().items():
             if not isinstance(key, Goods):
                 raise TypeError(f'`Stockpile` objects can only have `Goods` as keys.')
@@ -46,7 +46,7 @@ class Stockpile(dict):
             if value < 0.0:
                 raise ValueError(f'`Stockpile` object cannot have negative values.')
             
-            if isclose(value, 0.0):
+            if value < 0 or isclose(value, 0.0):
                 del self[key]
 
     def values(self) -> dict_values[Goods, int | float]:
@@ -60,11 +60,11 @@ class Stockpile(dict):
             return super().__init__(dict())
         
         super().__init__(arg)
-        self.fix()
+        self.__fix()
 
     def __setitem__(self, __key: Goods, __value: int | float) -> None:
         super().__setitem__(__key, __value)
-        self.fix()
+        self.__fix()
 
     def __getitem__(self, __key: Goods) -> int | float:
         try:
@@ -87,6 +87,18 @@ class Stockpile(dict):
         
         for good, amount in __value.items():
             self[good] += amount        
+        
+        return self
+    
+    def __isub__(self, __value: Stockpile) -> Self:
+        if not isinstance(__value, Stockpile):
+            raise TypeError(f'Only other `Stockpile` objects can be added to a `Stockpile` object.')
+        
+        for good, amount in __value.items():
+            if amount > self[good]:
+                raise ValueError(f'Operation resulted in a `Stockpile` object with negative goods.')
+
+            self[good] -= amount        
         
         return self
     

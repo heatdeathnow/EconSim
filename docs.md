@@ -1,11 +1,40 @@
-### Sharing of `Stockpile` objects through City/Province objects and their composite objects.
+## `source.goods` module
 
-Each high level city/province should have a `Stockpile` object and this object should be shared down with all the objects that are composite to it. For example, if there is a city _Trost_ that has a `Pop` object representing idle workers and this city has two `Extractor` objects and each object has one `Pop` object - then all of these objects should share the same stockpile. It should be store in the city and all object composite of it should have a "pointer" to it.
+## `source.pop` module
 
-### Simulation process.
-1. First the `Extractor` object produces its goods
-2. Then the `Workforce` object consumes the goods in the stockpile
+### `Strata` Enum
 
-If they produce more goods than they consume, they will grow. If not, they will shrink.
+### `Jobs` Enum
 
-The data is gathered before production and before consumption and is plotted into graphs after taking the rolling average of these states.
+### `Pop` dataclass
+
+### `PopFactory` class
+
+### `Community` dict-subclass
+This is a container for `Pop` object. It is intended to make operations between several `Pop` easier.
+
+- #### Accessing
+
+`Pop` objects within the `Community` can be accessed several ways:
+
+```
+Community[Jobs] -> Pop
+Community[Strata] -> Community
+Community[Strata, Jobs.NONE] -> Pop
+```
+
+The first accesses the Pop with the specified job. The second filters the Community and returns another Community with only pops of the specified stratum. The third accesses unemployed pops of the specified stratum.
+
+- #### Adding pops
+
+`Pop` objects can be added to the community via:
+
+```
+Community[Jobs] += Pop  # Assuming it has the correct job
+Community += Pop
+Community += Community
+```
+
+The first accesses the `Pop` object of the specified job and sums the wanted pop to it through the operation defined in the `Pop` class. The second checks for the `Pop`'s job and automatically adds it. The third iterates through the `Pop`s in the second community and adds them to the first.
+
+## `source.prod` module

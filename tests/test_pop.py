@@ -1,115 +1,424 @@
+from typing import Literal, Optional, Sequence
 from parameterized import parameterized
 from unittest import TestCase
-from typing import Optional
-from source.pop import Pop, Jobs, Strata, pop_factory
+
+from source.pop import ComFactory, Community, Pop, Jobs, Strata, PopFactory
 from source.goods import Goods, Stockpile
 
-class TestPop(TestCase):
+class TestPopFactory(TestCase):
 
-    # testing `pop_factory` function and `Pop`'s `__init__` method. 
     @parameterized.expand([
-        (100, Stockpile(), Jobs.FARMER, None, (100, Jobs.FARMER, Strata.LOWER)),
-        (100, Stockpile(), Jobs.MINER, None, (100, Jobs.MINER, Strata.LOWER)),
-        (100, Stockpile(), Jobs.SPECIALIST, None, (100, Jobs.SPECIALIST, Strata.MIDDLE)),
+        (Jobs.FARMER, 100, 0.5, (100, 0.5, Strata.LOWER, Jobs.FARMER)),
+        (Jobs.MINER, 100, 0.5, (100, 0.5, Strata.LOWER, Jobs.MINER)),
+        (Jobs.SPECIALIST, 100, 0.5, (100, 0.5, Strata.MIDDLE, Jobs.SPECIALIST)),
+        (Jobs.NONE, 100, 0.5, ValueError),
 
-        (100, Stockpile(), None, Strata.LOWER, (100, None, Strata.LOWER)),
-        (100, Stockpile(), None, Strata.MIDDLE, (100, None, Strata.MIDDLE)),
-        (100, Stockpile(), None, Strata.UPPER, (100, None, Strata.UPPER)),
+        (Jobs.FARMER, 0, 0.5, (0, Pop.ZERO_SIZE_WELFARE, Strata.LOWER, Jobs.FARMER)),
+        (Jobs.FARMER, -1, 0.5, ValueError),
 
-        (100, Stockpile(), None, None, ValueError),
-        (-100, Stockpile(), None, Strata.LOWER, ValueError),
-        (-100, Stockpile(), Jobs.SPECIALIST, Strata.LOWER, ValueError),
+        (Jobs.FARMER, 100, 0, (100, 0.0, Strata.LOWER, Jobs.FARMER)),
+        (Jobs.FARMER, 100, 1, (100, 1.0, Strata.LOWER, Jobs.FARMER)),
+        (Jobs.FARMER, 100, -0.1, ValueError),
+        (Jobs.FARMER, 100, 1.1, ValueError),
 
-        (100, Stockpile({Goods.WHEAT: 100}), Jobs.FARMER, None, (100, Jobs.FARMER, Strata.LOWER)),
-        (100, Stockpile({Goods.WHEAT: 100, Goods.IRON: 100}), Jobs.FARMER, None, (100, Jobs.FARMER, Strata.LOWER)),
-
-        (0.001, Stockpile(), Jobs.FARMER, None, (0.001, Jobs.FARMER, Strata.LOWER)),
-        (0.0001, Stockpile(), Jobs.FARMER, None, (0, Jobs.FARMER, Strata.LOWER)),
+        ('farmer', 100, 0.5, TypeError),
+        (Jobs.FARMER, '100', 0.5, TypeError),
+        (Jobs.FARMER, 100, '0.5', TypeError),
     ])
-    def test_init(self,
-                size: int | float,
-                stockpile: Stockpile,
-                job: Jobs, 
-                stratum: Strata,
-                expected: type[Exception] | tuple[int | float, Jobs, Strata]) -> None:
+    def test_job(self, job: Jobs, size: int | float, welfare: int | float,
+                                                 #    size,      welfare,   stratum, job
+                 expected: type[Exception] | tuple[int | float, int | float, Strata, Jobs]):
+
+        if isinstance(expected, type) and issubclass(expected, Exception):
+            with self.assertRaises(expected):
+                PopFactory.job(job, size, welfare)
+        
+        else:
+            pop = PopFactory.job(job, size, welfare)
+
+            self.assertAlmostEqual(pop.size, expected[0])
+            self.assertAlmostEqual(pop.welfare, expected[1])
+            self.assertEqual(pop.stratum, expected[2])
+            self.assertEqual(pop.job, expected[3])
+
+    @parameterized.expand([
+        (Strata.LOWER, 100, 0.5, (100, 0.5, Strata.LOWER, Jobs.NONE)),
+        (Strata.MIDDLE, 100, 0.5, (100, 0.5, Strata.MIDDLE, Jobs.NONE)),
+        (Strata.UPPER, 100, 0.5, (100, 0.5, Strata.UPPER, Jobs.NONE)),
+
+        (Strata.LOWER, -100, 0.5, ValueError),
+        (Strata.LOWER, 100, -0.5, ValueError),
+        (Strata.LOWER, 100, 1.5, ValueError),
+
+        ('lower', 100, 1.5, TypeError),
+        (Strata.LOWER, '100', 1.5, TypeError),
+        (Strata.LOWER, 100, '1.5', TypeError),
+    ])
+    def test_stratum(self, stratum: Strata, size: int | float, welfare: int | float,
+                     expected: type[Exception] | tuple[int | float, int | float, Strata, Jobs]):
         
         if isinstance(expected, type) and issubclass(expected, Exception):
             with self.assertRaises(expected):
-                pop_factory(size, stockpile, job, stratum)
+                PopFactory.stratum(stratum, size, welfare)
+        
+        else:
+            pop = PopFactory.stratum(stratum, size, welfare)
+
+            self.assertAlmostEqual(pop.size, expected[0])
+            self.assertAlmostEqual(pop.welfare, expected[1])
+            self.assertEqual(pop.stratum, expected[2])
+            self.assertEqual(pop.job, expected[3])
+
+class TestPop(TestCase):
+
+    def setUp(self):
+        self.test_farmer = PopFactory.job(Jobs.FARMER, 100, 0.5)
+    
+    def tearDown(self):
+        del self.test_farmer
+    
+    @parameterized.expand([
+        (PopFactory.job(Jobs.FARMER, 100, 0.5), PopFactory.job(Jobs.FARMER, 200, 0.5)),
+        (PopFactory.job(Jobs.FARMER, 100, 1), PopFactory.job(Jobs.FARMER, 200, 0.75)),
+        (PopFactory.job(Jobs.FARMER, 50, 0.5), PopFactory.job(Jobs.FARMER, 150, 0.5)),
+        (PopFactory.job(Jobs.FARMER, 100, 0), PopFactory.job(Jobs.FARMER, 200, 0.25)),
+
+        (PopFactory.job(Jobs.FARMER, 50, 0), PopFactory.job(Jobs.FARMER, 150, 1/3)),
+        (PopFactory.job(Jobs.FARMER, 50, 1), PopFactory.job(Jobs.FARMER, 150, 2/3)),
+        (PopFactory.job(Jobs.FARMER, 200, 0), PopFactory.job(Jobs.FARMER, 300, 1/6)),
+        (PopFactory.job(Jobs.FARMER, 200, 1), PopFactory.job(Jobs.FARMER, 300, 5/6)),
+    ])
+    def test_add(self, pop: Pop, expected: type[Exception] | Pop):
+
+        if isinstance(expected, type) and issubclass(expected, Exception):
+            with self.assertRaises(expected):
+                self.test_farmer + pop
 
         else:
-            pop = pop_factory(size, stockpile, job, stratum)
 
-            self.assertEqual(pop.size, expected[0])
-            self.assertEqual(pop.job, expected[1])
-            self.assertEqual(pop.stratum, expected[2])
+            new_pop = self.test_farmer + pop
+            self.test_farmer += pop
+ 
+            for pop in (new_pop, self.test_farmer):
+                self.assertEqual(pop.stratum, expected.stratum)
+                self.assertEqual(pop.job, expected.job)
+                self.assertAlmostEqual(pop.size, expected.size)
+                self.assertAlmostEqual(pop.welfare, expected.welfare)
+
+    @parameterized.expand([
+        (PopFactory.job(Jobs.FARMER, 50, 0.5), PopFactory.job(Jobs.FARMER, 50, 0.5)),
+        (PopFactory.job(Jobs.FARMER, 25, 0.5), PopFactory.job(Jobs.FARMER, 75, 0.5)),
+        (PopFactory.job(Jobs.FARMER, 75, 0.5), PopFactory.job(Jobs.FARMER, 25, 0.5)),
+        (PopFactory.job(Jobs.FARMER, 75, 0.5), PopFactory.job(Jobs.FARMER, 25, 0.5)),
+
+        (PopFactory.job(Jobs.FARMER, 50, 0.25), PopFactory.job(Jobs.FARMER, 50, 0.75)),
+        (PopFactory.job(Jobs.FARMER, 50, 0.75), PopFactory.job(Jobs.FARMER, 50, 0.25)),
+        (PopFactory.job(Jobs.FARMER, 50, 1), PopFactory.job(Jobs.FARMER, 50, 0)),
+        
+        (PopFactory.job(Jobs.FARMER, 51, 1), ValueError),
+        (PopFactory.job(Jobs.FARMER, 101, 0), ValueError),
+
+        (PopFactory.job(Jobs.MINER, 101, 0), ValueError),
+    ])
+    def test_sub(self, pop: Pop, expected: type[Exception] | Pop):
+
+        if isinstance(expected, type) and issubclass(expected, Exception):
+            with self.assertRaises(expected):
+                self.test_farmer - pop
+
+        else:
+            new_pop = self.test_farmer - pop
+            self.test_farmer -= pop
+
+            for pop in (new_pop, self.test_farmer):
+                self.assertEqual(pop.stratum, expected.stratum)
+                self.assertEqual(pop.job, expected.job)
+                self.assertAlmostEqual(pop.size, expected.size)
+                self.assertAlmostEqual(pop.welfare, expected.welfare)
 
     @parameterized.expand([
         # LOWER consumes 1 wheat, MIDDLE consumes 2 wheat and 1 iron.
-        (pop_factory(100, Stockpile(), Jobs.FARMER), {Goods.WHEAT: 100}),
-        (pop_factory(100, Stockpile(), Jobs.MINER), {Goods.WHEAT: 100}),
-        (pop_factory(100, Stockpile(), Jobs.SPECIALIST), {Goods.WHEAT: 200, Goods.IRON: 100}),
+        (PopFactory.job(Jobs.FARMER, 100), Stockpile({Goods.WHEAT: 100})),
+        (PopFactory.job(Jobs.MINER, 100), Stockpile({Goods.WHEAT: 100})),
+        (PopFactory.job(Jobs.SPECIALIST, 100), Stockpile({Goods.WHEAT: 200, Goods.IRON: 100})),
 
-        (pop_factory(50.55, Stockpile(), Jobs.FARMER), {Goods.WHEAT: 50.55}),
-        (pop_factory(50.55, Stockpile(), Jobs.SPECIALIST), {Goods.WHEAT: 101.1, Goods.IRON: 50.55}),
+        (PopFactory.job(Jobs.FARMER, 50.55), Stockpile({Goods.WHEAT: 50.55})),
+        (PopFactory.job(Jobs.SPECIALIST, 50.55), Stockpile({Goods.WHEAT: 101.1, Goods.IRON: 50.55})),
     ])
-    def test_consumption(self, pop: Pop, expected: dict[Goods, int | float]) -> None:
-        self.assertEqual(len(pop.consumption), len(expected))
+    def test_consumption(self, pop: Pop, expected: Stockpile):
 
-        for (real_good, real_amount), (expected_good, expected_amount) in zip(pop.consumption.items(), expected.items()):
+        consumption = pop.calc_consumption()
+
+        self.assertEqual(len(consumption), len(expected))
+
+        for (real_good, real_amount), (expected_good, expected_amount) in zip(consumption.items(), expected.items()):
             self.assertEqual(real_good, expected_good)
             self.assertAlmostEqual(real_amount, expected_amount)
 
     @parameterized.expand([
         # LOWER consumes 1 wheat, MIDDLE consumes 2 wheat and 1 iron.
-        (pop_factory(100, Stockpile({Goods.WHEAT: 100}), Jobs.FARMER), 1.0),
-        (pop_factory(100, Stockpile({Goods.WHEAT: 50}), Jobs.FARMER), 0.5),
-        (pop_factory(100, Stockpile(), Jobs.FARMER), 0.0),
+        (PopFactory.job(Jobs.FARMER, 100, 0.5), Stockpile({Goods.WHEAT: 100}), 5/6),  # 1/3 * 0.5 + 2/3 * 1 = 5/6
+        (PopFactory.job(Jobs.FARMER, 100, 0.5), Stockpile({Goods.WHEAT: 50}), 0.5),  # 1/3 * 0.5 + 2/3 * 0.5 = 0.5
+        (PopFactory.job(Jobs.FARMER, 100, 0.5), Stockpile(), 1/6),  # 1/3 * 0.5 + 2/3 * 0 = 0.5
 
-        (pop_factory(100, Stockpile({Goods.WHEAT: 200, Goods.IRON: 100}), Jobs.SPECIALIST, ), 1.0),
-        (pop_factory(100, Stockpile({Goods.WHEAT: 200}), Jobs.SPECIALIST), 0.5),
-        (pop_factory(100, Stockpile({Goods.IRON: 100}), Jobs.SPECIALIST), 0.5),
-        (pop_factory(100, Stockpile({Goods.WHEAT: 100, Goods.IRON: 50}), Jobs.SPECIALIST), 0.5),
-        (pop_factory(100, Stockpile(), Jobs.SPECIALIST), 0.0),
+        (PopFactory.job(Jobs.SPECIALIST, 100, 0.5), Stockpile({Goods.WHEAT: 200, Goods.IRON: 100}), 5/6),
+        (PopFactory.job(Jobs.SPECIALIST, 100, 0.5), Stockpile({Goods.WHEAT: 200}), 0.5),
+        (PopFactory.job(Jobs.SPECIALIST, 100, 0.5), Stockpile({Goods.IRON: 100}), 0.5),
+        (PopFactory.job(Jobs.SPECIALIST, 100, 0.5), Stockpile({Goods.WHEAT: 100, Goods.IRON: 50}), 0.5),
+        (PopFactory.job(Jobs.SPECIALIST, 100, 0.5), Stockpile(), 1/6),
 
-        (pop_factory(0, Stockpile(), Jobs.FARMER), 0.0),
-        (pop_factory(0, Stockpile({Goods.WHEAT: 100}), Jobs.FARMER), 0.0),
+        (PopFactory.job(Jobs.FARMER, 0, 0.5), Stockpile(), 0.0),
+        (PopFactory.job(Jobs.FARMER, 0, 0.5), Stockpile({Goods.WHEAT: 100}), 0.0),
     ])
-    def test_welfare(self, pop: Pop, expected: float) -> None:
+    def test_welfare(self, pop: Pop, stockpile: Stockpile, expected: float):
+        pop.update_welfare(pop.calc_consumption(), stockpile)
         self.assertAlmostEqual(pop.welfare, expected)
 
     @parameterized.expand([
-        # Welfare_threshold = 0.75; growth_rate = 0.05; promote_rate = 0.01
-        (pop_factory(100, Stockpile({Goods.WHEAT: 100}), Jobs.FARMER), 105, pop_factory(1, Stockpile(), None, Strata.MIDDLE), Stockpile()),
-        (pop_factory(100, Stockpile({Goods.WHEAT: 75}), Jobs.FARMER), 105, pop_factory(1, Stockpile(), None, Strata.MIDDLE), Stockpile()),
-        (pop_factory(100, Stockpile({Goods.WHEAT: 74}), Jobs.FARMER), 95, None, Stockpile()),
+        # WELFARE_THRESHOLD = 0.51
+        # GROWTH_RATE = 0.05
 
-        (pop_factory(100, Stockpile({Goods.WHEAT: 200, Goods.IRON: 100}), Jobs.SPECIALIST), 105, None, Stockpile()),
-        (pop_factory(100, Stockpile({Goods.WHEAT: 100, Goods.IRON: 100}), Jobs.SPECIALIST), 105, None, Stockpile()),
-        (pop_factory(100, Stockpile({Goods.WHEAT: 50, Goods.IRON: 50}), Jobs.SPECIALIST), 95, None, Stockpile()),
-
-        (pop_factory(100, Stockpile({Goods.WHEAT: 200}), Jobs.FARMER), 105, pop_factory(1, Stockpile(), None, Strata.MIDDLE), 
-        Stockpile({Goods.WHEAT: 100})),
-        (pop_factory(100, Stockpile({Goods.WHEAT: 300, Goods.IRON: 150}), Jobs.SPECIALIST), 105, None, 
-        Stockpile({Goods.WHEAT: 100, Goods.IRON: 50})),
+        (PopFactory.job(Jobs.FARMER, 100, 1), PopFactory.job(Jobs.FARMER, 105, 1)),
+        (PopFactory.job(Jobs.FARMER, 100, 0.51), PopFactory.job(Jobs.FARMER, 105, 0.51)),
+        (PopFactory.job(Jobs.FARMER, 100, 0.5), PopFactory.job(Jobs.FARMER, 95, 0.50)),
+        (PopFactory.job(Jobs.FARMER, 100, 0.49), PopFactory.job(Jobs.FARMER, 95, 0.49)),
+        (PopFactory.job(Jobs.FARMER, 100, 0), PopFactory.job(Jobs.FARMER, 95, 0)),
     ])
-    def test_consume(self, pop: Pop, expected_size: int | float, expected_return: Optional[Pop], expected_stockpile: Stockpile) -> None:
-        returned = pop.consume()
+    def test_resize(self, pop: Pop, expected: Pop):
+        pop.resize()
+        self.assertAlmostEqual(pop.size, expected.size)
 
-        self.assertAlmostEqual(pop.size, expected_size)
+    @parameterized.expand([
+        (PopFactory.job(Jobs.FARMER, 100, 1), True),
+        (PopFactory.job(Jobs.FARMER, 100, 0.51), True),
+        (PopFactory.job(Jobs.FARMER, 100, 0.5), False),
+        (PopFactory.job(Jobs.FARMER, 100, 0.49), False),
+        (PopFactory.job(Jobs.FARMER, 100, 0), False),
 
-        if expected_return and returned:
-            self.assertAlmostEqual(expected_return.size, returned.size)
-            self.assertEqual(None, returned.job)
-            self.assertEqual(expected_return.stratum, returned.stratum)
+        (PopFactory.stratum(Strata.MIDDLE, 100, 1), False),
+        (PopFactory.stratum(Strata.MIDDLE, 100, 0.51), False),
+        (PopFactory.stratum(Strata.MIDDLE, 100, 0.5), False),
+        (PopFactory.stratum(Strata.MIDDLE, 100, 0.49), False),
+        (PopFactory.stratum(Strata.MIDDLE, 100, 0), False),
+    ])
+    def test_promotes(self, pop: Pop, expected: bool):
+        self.assertEqual(pop.promotes(), expected)
+
+    @parameterized.expand([
+    # WELFARE_THRESHOLD = 0.51
+    # PROMOTE_RATE = 0.01
+
+    (PopFactory.job(Jobs.FARMER, 100, 0.51), PopFactory.stratum(Strata.MIDDLE, 1, 0.51)),
+    (PopFactory.job(Jobs.MINER, 100, 0.51), PopFactory.stratum(Strata.MIDDLE, 1, 0.51)),
+    (PopFactory.stratum(Strata.LOWER, 100, 0.51), PopFactory.stratum(Strata.MIDDLE, 1, 0.51)),
+    ])
+    def test_promote(self, pop: Pop, expected: Pop):
+        promoted = pop.promote()
+
+        self.assertEqual(promoted.job, expected.job)
+        self.assertEqual(promoted.stratum, expected.stratum)
+        self.assertAlmostEqual(promoted.size, expected.size)
+        self.assertAlmostEqual(promoted.welfare, expected.welfare)
+
+class TestComFactory(TestCase):
+
+    @parameterized.expand([
+        ({Jobs.FARMER: 90, Jobs.SPECIALIST: 10},
+         {Jobs.FARMER: PopFactory.job(Jobs.FARMER, 90), Jobs.SPECIALIST: PopFactory.job(Jobs.SPECIALIST, 10)}),
         
-        elif expected_return and returned is None:
-            self.fail('Expected pop promotion, but got `None`.')
+        ({Jobs.FARMER: 90, Jobs.SPECIALIST: 0},
+         {Jobs.FARMER: PopFactory.job(Jobs.FARMER, 90)}),
+        ({}, {}),
+        (None, {}),
         
-        elif returned and expected_return is None:
-            self.fail(f'Expected no pop promotion, but got {returned}.')
+        ('test', TypeError),
+        ({Jobs.FARMER: 90, Jobs.NONE: 10}, ValueError),
+        ({Strata.LOWER: 90, Strata.MIDDLE: 10}, TypeError),
+    ])
+    def test_job(self, want: Optional[dict[Jobs, int | float]], expected: type[Exception] | dict[Jobs, Pop]):
+        if isinstance(expected, type) and issubclass(expected, Exception):
+            self.assertRaises(expected, ComFactory.job, want)
         
-        self.assertEqual(len(pop.stockpile), len(expected_stockpile))
-        for (real_good, real_amount), (expected_good, expected_amount) in zip(pop.stockpile.items(), expected_stockpile.items()):
-            self.assertEqual(real_good, expected_good)
-            self.assertAlmostEqual(real_amount, expected_amount)
+        else:
+            community = ComFactory.job(want)
+
+            self.assertEqual(len(expected), len(community))
+            for expected_key, expected_pop in expected.items():
+                self.assertEqual(community[expected_key].stratum, expected_pop.stratum)
+                self.assertEqual(community[expected_key].job, expected_pop.job)
+                self.assertAlmostEqual(community[expected_key].size, expected_pop.size)
+                self.assertAlmostEqual(community[expected_key].welfare, expected_pop.welfare)
+
+    @parameterized.expand([
+        ({Jobs.FARMER: (90, 0.5), Jobs.SPECIALIST: (10, 0.5)},
+         {Jobs.FARMER: PopFactory.job(Jobs.FARMER, 90, 0.5), Jobs.SPECIALIST: PopFactory.job(Jobs.SPECIALIST, 10, 0.5)}),
+        
+        ({Jobs.FARMER: (90, 1), Jobs.SPECIALIST: (10, 0)},
+         {Jobs.FARMER: PopFactory.job(Jobs.FARMER, 90, 1), Jobs.SPECIALIST: PopFactory.job(Jobs.SPECIALIST, 10, 0)}),
+        
+        ({Jobs.FARMER: (90, 0.45), Jobs.SPECIALIST: 0},
+         {Jobs.FARMER: PopFactory.job(Jobs.FARMER, 90, 0.45)}),
+        ({}, {}),
+        (None, {}),
+        
+        ('test', TypeError),
+        ({Jobs.FARMER: 90, Jobs.NONE: 10}, ValueError),
+        ({Strata.LOWER: 90, Strata.MIDDLE: 10}, TypeError),
+    ])
+    def test_job_welfare(self, want: Optional[dict[Jobs, tuple[int | float, int | float]]], expected: type[Exception] | dict[Jobs, Pop]):
+        if isinstance(expected, type) and issubclass(expected, Exception):
+            self.assertRaises(expected, ComFactory.job_welfare, want)
+        
+        else:
+            community = ComFactory.job_welfare(want)
+
+            self.assertEqual(len(expected), len(community))
+            for expected_key, expected_pop in expected.items():
+                self.assertEqual(community[expected_key].stratum, expected_pop.stratum)
+                self.assertEqual(community[expected_key].job, expected_pop.job)
+                self.assertAlmostEqual(community[expected_key].size, expected_pop.size)
+                self.assertAlmostEqual(community[expected_key].welfare, expected_pop.welfare)
+
+    @parameterized.expand([
+        ({Strata.LOWER: 90, Strata.MIDDLE: 10},
+         {Strata.LOWER: PopFactory.stratum(Strata.LOWER, 90), Strata.MIDDLE: PopFactory.stratum(Strata.MIDDLE, 10)}),
+        
+        ({Strata.LOWER: 90, Strata.MIDDLE: 0},
+         {Strata.LOWER: PopFactory.stratum(Strata.LOWER, 90)}),
+        ({}, {}),
+        (None, {}),
+        
+        ('test', TypeError),
+        ({Jobs.FARMER: 90, Jobs.SPECIALIST: 10}, TypeError),
+    ])
+    def test_stratum(self, want: Optional[dict[Strata, int | float]], expected: type[Exception] | dict[Strata, Pop]):
+        if isinstance(expected, type) and issubclass(expected, Exception):
+            self.assertRaises(expected, ComFactory.stratum, want)
+        
+        else:
+            community = ComFactory.stratum(want)
+
+            self.assertEqual(len(expected), len(community))
+            for expected_key, expected_pop in expected.items():
+                self.assertEqual(community[expected_key, Jobs.NONE].stratum, expected_pop.stratum)
+                self.assertEqual(community[expected_key, Jobs.NONE].job, Jobs.NONE)
+                self.assertAlmostEqual(community[expected_key, Jobs.NONE].size, expected_pop.size)
+                self.assertAlmostEqual(community[expected_key, Jobs.NONE].welfare, expected_pop.welfare)
+
+    @parameterized.expand([
+        ({Strata.LOWER: (90, 0.5), Strata.MIDDLE: (10, 0.5)},
+         {Strata.LOWER: PopFactory.stratum(Strata.LOWER, 90, 0.5), Strata.MIDDLE: PopFactory.stratum(Strata.MIDDLE, 10, 0.5)}),
+        
+        ({Strata.LOWER: (90, 1), Strata.MIDDLE: (10, 0)},
+         {Strata.LOWER: PopFactory.stratum(Strata.LOWER, 90, 1), Strata.MIDDLE: PopFactory.stratum(Strata.MIDDLE, 10, 0)}),
+        
+        ({Strata.LOWER: (90, 0.45), Strata.MIDDLE: 0},
+         {Strata.LOWER: PopFactory.stratum(Strata.LOWER, 90, 0.45)}),
+        ({}, {}),
+        (None, {}),
+        
+        ('test', TypeError),
+        ({Strata.LOWER: 90, Jobs.SPECIALIST: 10}, TypeError),
+    ])
+    def test_stratum_welfare(self, want: Optional[dict[Strata, tuple[int | float, int | float]]], expected: type[Exception] | dict[Strata, Pop]):
+        if isinstance(expected, type) and issubclass(expected, Exception):
+            self.assertRaises(expected, ComFactory.stratum_welfare, want)
+        
+        else:
+            community = ComFactory.stratum_welfare(want)
+
+            self.assertEqual(len(expected), len(community))
+            for expected_key, expected_pop in expected.items():
+                self.assertEqual(community[expected_key, Jobs.NONE].stratum, expected_pop.stratum)
+                self.assertEqual(community[expected_key, Jobs.NONE].job, Jobs.NONE)
+                self.assertAlmostEqual(community[expected_key, Jobs.NONE].size, expected_pop.size)
+                self.assertAlmostEqual(community[expected_key, Jobs.NONE].welfare, expected_pop.welfare)
+
+class TestCommunity(TestCase):
+
+    def setUp(self) -> None:
+        self.community = ComFactory.job({Jobs.FARMER: 100})
+    
+    def tearDown(self) -> None:
+        del self.community
+    
+    @parameterized.expand([
+        (ComFactory.job({Jobs.FARMER: 100}), ComFactory.job({Jobs.FARMER: 200})),
+        (ComFactory.job({Jobs.MINER: 100}), ComFactory.job({Jobs.FARMER: 100, Jobs.MINER: 100})),
+        (ComFactory.job(), ComFactory.job({Jobs.FARMER: 100})),
+
+        (PopFactory.job(Jobs.FARMER, 100), ComFactory.job({Jobs.FARMER: 200})),
+        (PopFactory.job(Jobs.MINER, 100), ComFactory.job({Jobs.FARMER: 100, Jobs.MINER: 100})),
+
+        (PopFactory.stratum(Strata.LOWER, 100), Community([PopFactory.job(Jobs.FARMER, 100), PopFactory.stratum(Strata.LOWER, 100)])),
+        (ComFactory.stratum({Strata.LOWER: 100, Strata.MIDDLE: 100}),
+         Community([PopFactory.job(Jobs.FARMER, 100), PopFactory.stratum(Strata.LOWER, 100), PopFactory.stratum(Strata.MIDDLE, 100)])),
+
+        ('test', TypeError),
+    ])
+    def test_add(self, community: Community, expected: type[Exception] | Community):
+
+        if isinstance(expected, type) and issubclass(expected, Exception):
+            self.assertRaises(expected, self.community.__add__, community)
+            self.assertRaises(expected, self.community.__iadd__, community)
+        
+        else:
+
+            new = self.community + community
+            self.community += community
+
+            self.assertEqual(len(new), len(self.community))
+            self.assertEqual(len(new), len(expected))
+
+            for key, val in expected.items():
+                self.assertEqual(val.stratum, new[key].stratum)
+                self.assertEqual(val.stratum, self.community[key].stratum)
+
+                self.assertEqual(val.job, new[key].job)
+                self.assertEqual(val.job, self.community[key].job)
+
+                self.assertAlmostEqual(val.size, new[key].size)
+                self.assertAlmostEqual(val.size, self.community[key].size)
+
+                self.assertAlmostEqual(val.welfare, new[key].welfare)
+                self.assertAlmostEqual(val.welfare, self.community[key].welfare)
+
+    @parameterized.expand([
+        (ComFactory.job({Jobs.FARMER: 50}), ComFactory.job({Jobs.FARMER: 50})),
+        (ComFactory.job({Jobs.FARMER: 100}), ComFactory.job()),
+        (ComFactory.job(), ComFactory.job({Jobs.FARMER: 100})),
+        (PopFactory.job(Jobs.FARMER, 50, 1), ComFactory.job_welfare({Jobs.FARMER: (50, 0)})),
+
+        (ComFactory.job({Jobs.MINER: 100}), ValueError),
+        (PopFactory.job(Jobs.FARMER, 101), ValueError),
+        (PopFactory.job(Jobs.FARMER, 51, 1), ValueError),
+        (PopFactory.stratum(Strata.LOWER, 100), ValueError),
+        (ComFactory.stratum({Strata.LOWER: 100, Strata.MIDDLE: 100}), ValueError),
+        ('test', TypeError),
+    ])
+    def test_sub(self, community: Community, expected: type[Exception] | Community):
+
+        if isinstance(expected, type) and issubclass(expected, Exception):
+            self.assertRaises(expected, self.community.__sub__, community)
+            self.assertRaises(expected, self.community.__isub__, community)
+        
+        else:
+
+            new = self.community - community
+            self.community -= community
+
+            self.assertEqual(len(new), len(self.community))
+            self.assertEqual(len(new), len(expected))
+
+            for key, val in expected.items():
+                self.assertEqual(val.stratum, new[key].stratum)
+                self.assertEqual(val.stratum, self.community[key].stratum)
+
+                self.assertEqual(val.job, new[key].job)
+                self.assertEqual(val.job, self.community[key].job)
+
+                self.assertAlmostEqual(val.size, new[key].size)
+                self.assertAlmostEqual(val.size, self.community[key].size)
+
+                self.assertAlmostEqual(val.welfare, new[key].welfare)
+                self.assertAlmostEqual(val.welfare, self.community[key].welfare)

@@ -1,220 +1,555 @@
 from __future__ import annotations
-from dataclasses import dataclass
-from typing import Optional, Self
-from enum import Enum, auto
-from math import isclose
+from _collections_abc import dict_items, dict_values
+from collections.abc import Iterator
+from typing import Callable, Literal, Mapping, Optional, Self, Sequence, overload
 from source.goods import Goods, Stockpile
+from dataclasses import dataclass
+from enum import Enum, auto
+import math
+import numpy as np
+import copy
 
 class Strata(Enum):
     LOWER = auto()
     MIDDLE = auto()
     UPPER = auto()
 
+    @property
+    def needs(self) -> dict[Goods, float]:
+
+        match self:
+
+            case Strata.LOWER:
+                return {Goods.WHEAT: 1.0}
+
+            case Strata.MIDDLE:
+                return {Goods.WHEAT: 2.0, Goods.IRON: 1.0}
+            
+            case _ :
+                raise KeyError(f'`Strata` {self.name} has no needs assigned to it.')
+
+    @property
+    def jobs(self) -> tuple[Jobs, ...]:
+
+        match self:
+
+            case Strata.LOWER:
+                return Jobs.FARMER, Jobs.MINER
+            
+            case Strata.MIDDLE:
+                return Jobs.SPECIALIST,
+            
+            case _ :
+                raise KeyError(f'`Strata` has no jobs assigned to it.')
+
+    @property
+    def promotes(self) -> Optional[Strata]:
+        match self:
+
+            case Strata.LOWER:
+                return Strata.MIDDLE
+            
+            case Strata.MIDDLE:
+                return None
+            
+            case _ :
+                raise KeyError(f'stratum `{self}` has no promotion assigned to it.')
+
 class Jobs(Enum):
+    NONE = auto()
     FARMER = auto()
     MINER = auto()
     SPECIALIST = auto()
 
+    def stratum(self) -> Strata:
+        
+        if self in Strata.LOWER.jobs:
+            return Strata.LOWER
+        
+        elif self in Strata.MIDDLE.jobs:
+            return Strata.MIDDLE
+        
+        elif self in Strata.UPPER.jobs:
+            return Strata.UPPER
+
+        else:
+            raise KeyError(f'Job {self.name} is not assigned to any stratum.')
+
 @dataclass
 class Pop:
-    """
-    ### This dataclass represents a population.
 
-    Do not instantiated this class manually! Use `pop_factory`.
-    
-    #### Parameters:
-        - `stratum`: One of the stratum enumerated in the `Strata` `Enum`; e.g.: `Strata.LOWER`.
-        - `_size`: The amount of people in this specific population - can be a `float` or an `int`.
-        - `job`: One of the jobs in the `Jobs` `Enum`. Stratas have jobs specific to them and cannot have jobs from another stratum.
-    
-    #### Additional attributes:
-        - `promotes`: The stratum from the `Strata` `Enum` that this object's stratum promotes to; or `None` if does not promote.
-    e.g.: `Strata.LOWER` promotes to `Strata.MIDDLE`.
-        - `stockpile`: a pointer to a `Stockpile` object within the parent object that this `Pop` object is composite of.
+    # ===== CONFIGURATIONS =====
 
-    #### Properties:
-        - `consumption`: A `dict[Goods, float | int]` mapping the goods this `Pop` object needs and their respective needed amounts.
-    `Goods` is a `Enum` member from the `Goods` `Enum` in the `goods` module. Each stratum has different needs and respective amounts.
-        - `welfare`: A `float` ranging from 0.0 to 1.0 expressing how much of their needs this `Pop` object is capable of consuming.
-    """
-
-    JOBS = {
-        Strata.LOWER: tuple([Jobs.FARMER, Jobs.MINER]),
-        Strata.MIDDLE: tuple([Jobs.SPECIALIST, ]),
-        # Strata.UPPER: tuple()
-    }
-
-    NEEDS = {
-        Strata.LOWER: {Goods.WHEAT: 1.0},
-        Strata.MIDDLE: {Goods.WHEAT: 2.0, Goods.IRON: 1.0},
-        # Strata.UPPER: {}
-    }
-
-    WELFARE_THRESHOLD = 0.75  # Pops with a welfare higher than or equal to this value will grow and promote, otherwise decline.
+    WELFARE_THRESHOLD = 0.51  # Pops with a welfare higher than or equal to this value will grow and promote, otherwise decline.
     GROWTH_RATE = 0.05  # It will grow by 5 people per 100 people.
     PROMOTE_RATE = 0.01  # It will promote by 1 person per 100 people.
 
+    OLD_WELFARE_WEIGHT = 1/3
+    NEW_WELFARE_WEIGHT = 2/3
+
+    BASE_WELFARE = 0.5  # The welfare that newly initialized `Pop` objects should have.
+    ZERO_SIZE_WELFARE = 0.0  # The welfare a `Pop` has when its size is zero.
+
+    # ==========================
+
+    size: int | float
+    welfare: int | float
     stratum: Strata
-    _size: int | float
-    job: Optional[Jobs] = None
+    job: Jobs
 
-    @property
-    def size(self) -> int | float:
-        """
-        This property has the purpose of preventing the size of the population from never reaching zero.
+    def __scrutinize(self, __value: Pop, sub: bool = False):
+        """ 
+        This method checks if it is possible to carry out arithmetic calculations with the passed object.
+        If not, it raises an exception.
         """
 
-        if self._size < 0.001:
-            self._size = 0
+        if not isinstance(__value, Pop):
+            raise TypeError(f'Arithmetic operations between a `Pop` type and a `{type(__value)}` type are not allowed.')
+
+        if self.job != __value.job and (self.job != Jobs.NONE or __value.job != Jobs.NONE):
+            raise ValueError(f'Cannot perform arithmetic operations between pops with different jobs.\nInfo: ` {self.job}, {__value.job}')
         
-        return self._size
+        if self.stratum != __value.stratum:
+            raise ValueError(f'Cannot perform arithmetic operations between pops of different strata.\nInfo: {self.stratum}, {__value.stratum}')
 
-    @property
-    def consumption(self) -> dict[Goods, int | float]:
-        return {good: need * self._size for good, need in Pop.NEEDS[self.stratum].items()}
+        if sub and __value.size > self.size:
+            raise ValueError(f'Cannot subtract pops because it would result in a negative amount.\nInfo: {self.size}, {__value.size}')
 
-    @property
-    def welfare(self) -> float:
+        if sub and __value.size * __value.welfare > self.size * self.welfare:
+            raise ValueError(f'Removing {__value.size} pops with {__value.welfare} from {self.size} pops with {self.welfare} would result in negative welfare.')
 
-        if isclose(self._size, 0.0):  # This prevents ZeroDivisionError
-            return 0.0
+    def __add__(self, __value: Pop) -> Pop:
+        self.__scrutinize(__value)
+
+        return PopFactory.job(self.job, self.size + __value.size,
+                              np.average([self.welfare, __value.welfare], weights=[self.size, __value.size]))
+
+    def __sub__(self, __value: Pop) -> Pop:
+        self.__scrutinize(__value, True)
+
+        try:
+            return PopFactory.job(self.job, self.size - __value.size,
+                                np.average([self.welfare, __value.welfare], weights=[self.size, -__value.size]))
+
+        except ZeroDivisionError:
+            return PopFactory.job(self.job, 0)
+
+    def __iadd__(self, __value: Pop) -> Self:
+        self.__scrutinize(__value)
+
+        self.welfare = np.average([self.welfare, __value.welfare], weights=[self.size, __value.size])
+        self.size += __value.size
+
+        return self
+
+    def __isub__(self, __value: Pop) -> Self:
+        self.__scrutinize(__value, True)
+
+        try:
+            self.welfare = np.average([self.welfare, __value.welfare], weights=[self.size, -__value.size])
+            self.size -= __value.size
+
+        except ZeroDivisionError:
+            self.welfare = Pop.ZERO_SIZE_WELFARE
+            self.size = 0
+
+        return self
+
+    def __repr__(self) -> str:
+        """The stratum is implicit in each job except for NONE."""
+
+        if self.job == Jobs.NONE:
+            return f'<{self.stratum.name}: {self.size}>'
+        
+        else:
+            return f'<{self.job.name}: {self.size}>'
+
+    def calc_consumption(self) -> Stockpile:
+        return Stockpile({good: need * self.size for good, need in self.stratum.needs.items()})
+
+    def update_welfare(self, consumption: Stockpile, stockpile: Stockpile):
+        """
+        This method only calculates the new welfare of the object based on the passed arguments and its current welfare.
+        Changes to the stockpile should be computed from outside this method.
+        """
+
+        if math.isclose(self.size, 0.0):  # This prevents ZeroDivisionError
+            self.welfare = Pop.ZERO_SIZE_WELFARE
+            return
 
         welfare = 0.0
-
-        for good, amount in self.consumption.items():
+        for good, amount in consumption.items():
             try:
-                welfare += min([1, self.stockpile[good] / amount])
+                welfare += min([1, stockpile[good] / amount])
             
             except KeyError:
                 continue
 
-        welfare /= len(Pop.NEEDS[self.stratum])
-        return welfare
+        welfare /= len(self.stratum.needs)
+        self.welfare = np.average([self.welfare, welfare], weights=[Pop.OLD_WELFARE_WEIGHT, Pop.NEW_WELFARE_WEIGHT])
 
-    def consume(self) -> Optional[Pop]:  # type: ignore
-        """
-        Grows or shrinks the _size of the `object` 
-        and optionally returns another `Pop` object if the object's `promotes` attribute is not `None`
-        """
+        if math.isclose(self.welfare, 0):
+            self.welfare = 0
 
-        welfare = self.welfare
-        original_size = self._size
+    def resize(self):
+        """Resizes the population based on its welfare."""
 
-        for good, amount in self.consumption.items():
-            self.stockpile[good] -= min([Pop.NEEDS[self.stratum][good] * self._size, amount, self.stockpile[good]])
+        if self.welfare >= Pop.WELFARE_THRESHOLD:
+            self.size += self.size * Pop.GROWTH_RATE
 
-        if welfare >= Pop.WELFARE_THRESHOLD:
-            self += self._size * Pop.GROWTH_RATE
-
-            if self.promotes:
-                return pop_factory(original_size * Pop.PROMOTE_RATE, self.stockpile, stratum = self.promotes)
-            
         else:
-            self -= self._size * Pop.GROWTH_RATE
+            self.size -= self.size * Pop.GROWTH_RATE
+    
+    def promotes(self) -> bool:
+        """ Checks if the object can promote to a higher stratum based on its stratum and welfare. """
 
-    def link_stockpile(self, stockpile: Stockpile):
-        self.stockpile = stockpile
+        if self.stratum in (Strata.MIDDLE, Strata.UPPER):
+            return False
+        
+        if self.welfare < Pop.WELFARE_THRESHOLD:
+            return False
+        
+        return True
 
-    def __post_init__(self) -> None:
-        self.promotes: Optional[Strata]
+    def promote(self) -> Pop:
+        """
+        Returns a `Pop` object of a higher stratum if promotion is possible for the objects stratum. 
+        Checking wheter this method should or shouldn't be run based on the object's welfare is not 
+        part of its responsability. Use the `promotes` method.
+        """
 
         match self.stratum:
             case Strata.LOWER:
-                self.promotes = Strata.MIDDLE
+                return PopFactory.stratum(Strata.MIDDLE, self.size * Pop.PROMOTE_RATE, self.welfare)
             
-            case _:
-                self.promotes = None
+            case _ :
+                raise NotImplementedError            
+
+class PopFactory:
+
+    """ Container class for `Pop` factory methods. """
+
+    @staticmethod
+    def __validate_size(size: int | float):
+        if not isinstance(size, (int, float)):
+            raise TypeError(f'The size parameter only accepts `int` or `float` types, but a `{type(size)}` type was passed.')
+        
+        if size < 0.0:
+            raise ValueError(f'The `size` parameter only accepts positive values, but {size} was passed.')
+    
+    @staticmethod
+    def __validate_welfare(welfare: int | float):
+        if not isinstance(welfare, (int, float)):
+            raise TypeError(f'The welfare parameter only accepts `float` types, but a `{type(welfare)}` type was passed.')
+
+        if not (0.0 <= welfare <= 1.0):
+            raise ValueError(f'The `welfare` parameter only accepts values between 0 and 1, but {welfare} was passed.')
+
+    @staticmethod
+    def job(job: Jobs, size: int | float = 0.0, welfare: float = Pop.BASE_WELFARE) -> Pop:
+
+        # job validation
+        if job not in Jobs:
+            raise TypeError(f'The `job` parameter only accepts members of the `Jobs` enum, but {job} was passed.')
+
+        if job == Jobs.NONE:
+            raise ValueError(f'Cannot use the `job` factory with `NONE` as a job. Use the stratum factory instead.')
+
+        PopFactory.__validate_size(size)
+
+        if math.isclose(size, 0):
+            welfare = Pop.ZERO_SIZE_WELFARE
+        
+        else:
+            PopFactory.__validate_welfare(welfare)
+        
+        # Determining stratum.
+        if job in Strata.LOWER.jobs:
+            stratum = Strata.LOWER
+        
+        elif job in Strata.MIDDLE.jobs:
+            stratum = Strata.MIDDLE
+        
+        elif job in Strata.UPPER.jobs:
+            stratum = Strata.UPPER
+        
+        else:
+            raise KeyError(f'Although {job} exists, it has not been assigned to any of the strata')
+        
+        return Pop(size, welfare, stratum, job)
+
+    @staticmethod
+    def stratum(stratum: Strata, size: float = 0.0, welfare: float = Pop.BASE_WELFARE) -> Pop:
+        
+        if stratum not in Strata:
+            raise TypeError(f'`stratum` parameter only accepts members of the `Strata` enum, but {stratum} was passed.')
+        
+        PopFactory.__validate_size(size)
+
+        if math.isclose(size, 0):
+            welfare = Pop.ZERO_SIZE_WELFARE
+        
+        else:
+            PopFactory.__validate_welfare(welfare)
+
+        return Pop(size, welfare, stratum, Jobs.NONE)
+
+class Community(dict):
+
+    """
+    This class is intended as a container for `Pop` objects.
+
+    `Community[Jobs]` returns a `Pop` object with the specified job. If it doesn't have one, it will create one with size 0.
+
+    `Community[Jobs.NONE]` won't work, so `Community[Strata, Jobs.NONE]` should be used instead for retrieving unemployed 
+    pops of a specific stratum.
+
+    `Community[Strata]` will return a `Community` containing only the pops of the specified strata.
+
+    Use `Community[Jobs] += Pop` or `Community += Pop` to add a pop to the community.
+
+    Use `Community += Community to add all pops of the former to the prior.
+    """
+
+    def __fix(self):
+        copy: dict[Jobs | tuple[Strata, Literal[Jobs.NONE]], Pop] = self.copy()
+
+        for key, val in copy.items():
+            if not isinstance(key, tuple) and key not in Jobs:
+                raise TypeError(f'`Community` objects cannot take a `{type(key)}` type as a key.')
+            
+            if isinstance(key, tuple):
+                if len(key) != 2:
+                    raise ValueError('Only tuples of length 2 and type `tuple[Strata, Jobs.NONE]` are accepted as keys.')
+                
+                if key[0] not in Strata or key[1] != Jobs.NONE:
+                    raise TypeError(f'`Community` objects only accept `tuple[Strata, Jobs.NONE]` as a tuple-key.')
+
+            if not isinstance(val, Pop):
+                raise TypeError(f'`Community` objects can only have `Pop` objets as values.')
+            
+            if val.size < 0 or math.isclose(val.size, 0):
+                del self[key]
+
+    def items(self) -> dict_items[Jobs | tuple[Strata, Literal[Jobs.NONE]], Pop]:
+        return super().items()
+
+    def values(self) -> dict_values[Jobs | tuple[Strata, Literal[Jobs.NONE]], Pop]:
+        return super().values()
+
+    def __init__(self, pops: Optional[Sequence[Pop]] = None):
+        super().__init__()
+
+        if not pops:
+            return 
+
+        for pop in pops:            
+            if pop.job != Jobs.NONE:
+                self[pop.job] = pop
+            
+            else:
+                self[pop.stratum, Jobs.NONE] = pop
+        
+        self.__fix()
+
+    def __setitem__(self, __key: Jobs | tuple[Strata, Literal[Jobs.NONE]], __value: Pop):
+        super().__setitem__(__key, __value)
+        self.__fix()
+
+    @overload
+    def __getitem__(self, __key: Jobs | tuple[Strata, Literal[Jobs.NONE]]) -> Pop:
+        """ Returns the stored `Pop` with the specified job. If this community has no such pop, it returns one with size 0. """
+    
+    @overload
+    def __getitem__(self, __key: Strata) -> Community:
+        """ Returns a community whose stored pops are only of the specified stratum. """
+
+    def __getitem__(self, __key: Jobs | tuple[Strata, Literal[Jobs.NONE]] | Strata ) -> Pop | Community:
+
+        if __key not in Jobs and __key not in Strata and not isinstance(__key, tuple):
+            raise TypeError('Can only consult `Community` pops via `Jobs`, `Strata`, or `tuple[Strata, Jobs.NONE]` as keys.')
+
+        if isinstance(__key, tuple):
+            if len(__key) != 2:
+                raise ValueError('Only tuples of length 2 and type `tuple[Strata, Jobs.NONE]` are accepted as keys.')
+            
+            if __key[0] not in Strata or __key[1] != Jobs.NONE:
+                raise TypeError(f'`Community` objects only accept `tuple[Strata, Jobs.NONE]` as a tuple-key.')
+                    
+        elif isinstance(__key, Strata):
+            return self.__filter(__key)
+        
+        try:
+            return super().__getitem__(__key)
+
+        except KeyError:
+            if isinstance(__key, tuple):
+                return PopFactory.stratum(__key[0])
+
+            else:
+                return PopFactory.job(__key)
+
+    def __filter(self, filter: Strata) -> Community:
+        new: list[Pop] = []
+
+        for pop in self.values():
+            if pop.stratum == filter:
+                new.append(pop)
+            
+        return Community(new)
+    
+    def __iter__(self) -> Iterator[Jobs | tuple[Strata, Literal[Jobs.NONE]]]:
+        return super().__iter__()
+    
+    def __scrutinize(self, __value: Pop | Community, sub: bool = False):
+        """ Checks if it is possible to perform an arithmetic operation with the passed value. """
+
+        if not isinstance(__value, (Pop, Community)):
+            raise TypeError('Only `Pop` or `Community` objects and be added to a `Community` object.')
+
+        if sub and isinstance(__value, Pop):
+            if __value.size > self[__value.job].size:
+                raise ValueError(f'Subtracting {__value.size} pops from the {self[__value.job].size} in this community would result in negative population size.')
+
+            if __value.size * __value.welfare > self[__value.job].size * self[__value.job].welfare:
+                raise ValueError(f'Cannot subtract pops with a total welfare of {__value.size * __value.welfare} when the community only has {self[__value.job].size * self[__value.job].welfare} total welfare.')
+
+        elif sub and isinstance(__value, Community):
+            for pop in __value.values():
+                if pop.size > self[pop.job].size:
+                    raise ValueError(f'Subtracting {pop.size} pops from the {self[pop.job].size} in this community would result in negative population size.')
+
+                if pop.size * pop.welfare > self[pop.job].size * self[pop.job].welfare:
+                    raise ValueError(f'Cannot subtract pops with a total welfare of {pop.size * pop.welfare} when the community only has {self[pop.job].size * self[pop.job].welfare} total welfare.')
+
+    def __add__(self, __value: Pop | Community) -> Community:
+
+        self.__scrutinize(__value)
+        new = copy.deepcopy(self)
+
+        if isinstance(__value, Pop) and __value.job != Jobs.NONE:
+            new[__value.job] += __value
+        
+        elif isinstance(__value, Pop):
+            new[__value.stratum, Jobs.NONE] += __value
+        
+        else:
+            for key, pop in __value.items():  # If it is in a `Community` object, then it is already consistent and correct.
+                new[key] += pop
+            
+        return new
+
+    def __sub__(self, __value: Pop | Community) -> Community:
+
+        self.__scrutinize(__value, True)
+        new = copy.deepcopy(self)
+
+        if isinstance(__value, Pop) and __value.job != Jobs.NONE:
+            new[__value.job] -= __value
+        
+        elif isinstance(__value, Pop):
+            new[__value.stratum, Jobs.NONE] -= __value
+        
+        else:
+            for key, pop in __value.items():
+                new[key] -= pop
+            
+        return new
+
+    def __iadd__(self, __value: Pop | Community) -> Self:
+
+        self.__scrutinize(__value)
+
+        if isinstance(__value, Pop) and __value.job != Jobs.NONE:
+            self[__value.job] += __value
+        
+        elif isinstance(__value, Pop):
+            self[__value.stratum, Jobs.NONE] += __value
+        
+        else:
+            for key, pop in __value.items():
+                self[key] += pop
+        
+        return self
+
+    def __isub__(self, __value: Pop | Community) -> Self:
+
+        self.__scrutinize(__value, True)
+
+        if isinstance(__value, Pop) and __value.job != Jobs.NONE:
+            self[__value.job] -= __value
+        
+        elif isinstance(__value, Pop):
+            self[__value.stratum, Jobs.NONE] -= __value
+        
+        else:
+            for key, pop in __value.items():
+                self[key] -= pop
+        
+        return self
 
     def __repr__(self) -> str:
-        if self.job is None:
-            return f'<{self.stratum.name, self._size}>'
-        
-        else:
-            return f'<{self.job.name}: {self._size}>'
+        pops = self.values()
+        pops = list(map(str, pops))
+        return f'<Community obj.: {', '.join(pops)} >'
 
-    def __iadd__(self, __value: float | int | Pop) -> Self:
-        if isinstance(__value, (float, int)):
-            self._size += __value
-        
-        elif isinstance(__value, Pop) and (__value.job is None or self.job == __value.job):
-            self._size += __value._size
+class ComFactory:
 
-        elif isinstance(__value, Pop):
-            raise ValueError(f'Cannot add two `Pop` objects if they have different jobs.')
-        
-        else:
-            raise TypeError(f'Cannot add type {type(__value)} to `Pop` object.')
+    """ Container class for `Community` factory methods. """
 
-        return self
-
-    def __isub__(self, __value: float | int | Pop) -> Self:
-        if isinstance(__value, (float, int)):
-            self._size -= __value
-        
-        elif isinstance(__value, Pop) and (__value.job is None or self.job == __value.job):
-            self._size -= __value._size
-
-        elif isinstance(__value, Pop):
-            raise ValueError(f'Cannot add two `Pop` objects if they have different jobs.')
-        
-        else:
-            raise TypeError(f'Cannot add type {type(__value)} to `Pop` object.')
-
-        return self
-
-def pop_factory(_size: int | float, stockpile: Stockpile, job: Optional[Jobs] = None, stratum: Optional[Strata] = None) -> Pop:
-    """
-    ### `Pop` objects must only be created using this function!
-
-    #### Parameters:
-        - `_size`: Required, must be `int` or `float`, and cannot be less than 0.
-        - `stockpile`: Required, this is expected to be the `Stockpile` object from the parent class
-    which this generated `Pop` object will be composite of. 
-        - `job`: Optional¹ ², must be a `Jobs` member
-        - `stratum`: Optional¹ ², must be a `Strata` member.
+    @staticmethod
+    def __validate_dict(want: Mapping):
+        if not isinstance(want, dict):
+            raise TypeError(f'`ComFactory`\'s methods method only take in dictionaries, but `{type(want)}` was passed.')
     
-    1 - Either the `job` or the `stratum` arguments must be passed. If the two are left empty, this function will raise an error.
+    type __size_and_welfare = int | float | tuple[int | float, int | float]
+    @staticmethod
+    def __create_community(method: Callable, want: Optional[Mapping[Jobs, __size_and_welfare] | Mapping[Strata, __size_and_welfare]] = None):
+        """ This method is cancerous. TODO: something about this. """
 
-    2 - If both `job` and `stratum` are passed, the `job` must be a job associated with the `stratum`, 
-    if it is not, this function will raise an error.
-    """
+        if not want:
+            return Community()
 
-    if _size < 0.0:
-        raise ValueError(f'`Pop` object cannot have negative _size.')
+        ComFactory.__validate_dict(want)
 
-    if not isinstance(stockpile, Stockpile):
-        raise TypeError('`stockpile` argument must be a `Stockpile` object.')
+        pops = []
 
-    if job is not None:
-
-        if job not in Jobs:
-            raise ValueError(f'The job {job} does not exist.')
-
-        elif stratum is not None and job not in Pop.JOBS[stratum]:
-            raise ValueError(f'The job {job} is not appropriate for the {stratum.name} stratum.')
-
-        elif job in Pop.JOBS[Strata.LOWER]:
-            pop = Pop(Strata.LOWER, _size, job)
-            pop.link_stockpile(stockpile)
-            return pop
+        for job_stratum, size_welfare in want.items():
+            try:
+                if isinstance(size_welfare, tuple):
+                    pops.append(method(job_stratum, *size_welfare))
+                
+                else:
+                    pops.append(method(job_stratum, size_welfare))
         
-        elif job in Pop.JOBS[Strata.MIDDLE]:
-            pop = Pop(Strata.MIDDLE, _size, job)
-            pop.link_stockpile(stockpile)
-            return pop
-        
-        elif job in Pop.JOBS[Strata.UPPER]:
-            pop = Pop(Strata.UPPER, _size, job)
-            pop.link_stockpile(stockpile)
-            return pop
-        
-        else:
-            raise ValueError(f'Although {job} exists, it is not associated with any strata.')
-    
-    elif stratum is None:
-        raise ValueError(f'`pop_factory` requires at least one of the two arguments: `job` or `stratum`.')
+            except (TypeError, ValueError, KeyError) as e:
+                e.add_note(f"""
+This occured when attemping to instantiate a pop with using the `{method.__name__}` method of the `PopFactory` class.
+Info: job/stratum: {job_stratum}, size/welfare: {size_welfare}.""")
+                raise e
+            
+        return Community(pops)
 
-    else:
-        pop = Pop(stratum, _size)
-        pop.link_stockpile(stockpile)
-        return pop
+    @staticmethod
+    def job(want: Optional[dict[Jobs, int | float]] = None) -> Community:
+        """ Creates all the `Pop`s with the specified jobs and sizes and returns a `Community` containing them. """
+        
+        return ComFactory.__create_community(PopFactory.job, want)
+
+    @staticmethod
+    def job_welfare(want: Optional[dict[Jobs, tuple[int | float, int | float]]] = None) -> Community:
+        """ Creates all the `Pop`s with the specified jobs, sizes and welfares and returns a `Community` containing them. """
+
+        return ComFactory.__create_community(PopFactory.job, want)
+
+    @staticmethod
+    def stratum(want: Optional[dict[Strata, int | float]] = None) -> Community:
+        """ Creates all the `Pop`s with the specified stratum and sizes and returns a `Community` containing them. """
+
+        return ComFactory.__create_community(PopFactory.stratum, want)
+            
+    @staticmethod
+    def stratum_welfare(want: Optional[dict[Strata, tuple[int | float, int | float]]] = None) -> Community:
+        """ Creates all the `Pop`s with the specified stratum, sizes and welfare and returns a `Community` containing them. """
+
+        return ComFactory.__create_community(PopFactory.stratum, want)
