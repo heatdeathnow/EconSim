@@ -1,9 +1,12 @@
 from typing import Literal, Optional, Sequence
 from parameterized import parameterized
 from unittest import TestCase
+from source import goods
+from source.exceptions import NegativeAmountError
 
 from source.pop import ComFactory, Community, Pop, Jobs, Strata, PopFactory
 from source.goods import Goods, Stockpile
+from source.utils import SharingAlg
 
 class TestPopFactory(TestCase):
 
@@ -87,12 +90,16 @@ class TestPop(TestCase):
         (PopFactory.job(Jobs.FARMER, 50, 1), PopFactory.job(Jobs.FARMER, 150, 2/3)),
         (PopFactory.job(Jobs.FARMER, 200, 0), PopFactory.job(Jobs.FARMER, 300, 1/6)),
         (PopFactory.job(Jobs.FARMER, 200, 1), PopFactory.job(Jobs.FARMER, 300, 5/6)),
+
+        (PopFactory.job(Jobs.MINER, 100), ValueError),
+        (PopFactory.stratum(Strata.MIDDLE, 100), ValueError),
+        ('test', TypeError),
     ])
     def test_add(self, pop: Pop, expected: type[Exception] | Pop):
 
         if isinstance(expected, type) and issubclass(expected, Exception):
-            with self.assertRaises(expected):
-                self.test_farmer + pop
+            self.assertRaises(expected, self.test_farmer.__add__, pop)
+            self.assertRaises(expected, self.test_farmer.__iadd__, pop)
 
         else:
 
@@ -109,22 +116,23 @@ class TestPop(TestCase):
         (PopFactory.job(Jobs.FARMER, 50, 0.5), PopFactory.job(Jobs.FARMER, 50, 0.5)),
         (PopFactory.job(Jobs.FARMER, 25, 0.5), PopFactory.job(Jobs.FARMER, 75, 0.5)),
         (PopFactory.job(Jobs.FARMER, 75, 0.5), PopFactory.job(Jobs.FARMER, 25, 0.5)),
-        (PopFactory.job(Jobs.FARMER, 75, 0.5), PopFactory.job(Jobs.FARMER, 25, 0.5)),
+        (PopFactory.job(Jobs.FARMER, 100, 0.5), PopFactory.job(Jobs.FARMER, 0, 0.5)),
 
         (PopFactory.job(Jobs.FARMER, 50, 0.25), PopFactory.job(Jobs.FARMER, 50, 0.75)),
         (PopFactory.job(Jobs.FARMER, 50, 0.75), PopFactory.job(Jobs.FARMER, 50, 0.25)),
         (PopFactory.job(Jobs.FARMER, 50, 1), PopFactory.job(Jobs.FARMER, 50, 0)),
         
-        (PopFactory.job(Jobs.FARMER, 51, 1), ValueError),
-        (PopFactory.job(Jobs.FARMER, 101, 0), ValueError),
-
-        (PopFactory.job(Jobs.MINER, 101, 0), ValueError),
+        (PopFactory.job(Jobs.FARMER, 51, 1), NegativeAmountError),
+        (PopFactory.job(Jobs.FARMER, 101, 0), NegativeAmountError),
+        (PopFactory.job(Jobs.MINER, 50), ValueError),
+        (PopFactory.stratum(Strata.MIDDLE, 50), ValueError),
+        ('test', TypeError),
     ])
     def test_sub(self, pop: Pop, expected: type[Exception] | Pop):
 
         if isinstance(expected, type) and issubclass(expected, Exception):
-            with self.assertRaises(expected):
-                self.test_farmer - pop
+            self.assertRaises(expected, self.test_farmer.__sub__, pop)
+            self.assertRaises(expected, self.test_farmer.__isub__, pop)
 
         else:
             new_pop = self.test_farmer - pop
@@ -159,7 +167,7 @@ class TestPop(TestCase):
         # LOWER consumes 1 wheat, MIDDLE consumes 2 wheat and 1 iron.
         (PopFactory.job(Jobs.FARMER, 100, 0.5), Stockpile({Goods.WHEAT: 100}), 5/6),  # 1/3 * 0.5 + 2/3 * 1 = 5/6
         (PopFactory.job(Jobs.FARMER, 100, 0.5), Stockpile({Goods.WHEAT: 50}), 0.5),  # 1/3 * 0.5 + 2/3 * 0.5 = 0.5
-        (PopFactory.job(Jobs.FARMER, 100, 0.5), Stockpile(), 1/6),  # 1/3 * 0.5 + 2/3 * 0 = 0.5
+        (PopFactory.job(Jobs.FARMER, 100, 0.5), Stockpile(), 1/6),  # 1/3 * 0.5 + 2/3 * 0 = 1/6
 
         (PopFactory.job(Jobs.SPECIALIST, 100, 0.5), Stockpile({Goods.WHEAT: 200, Goods.IRON: 100}), 5/6),
         (PopFactory.job(Jobs.SPECIALIST, 100, 0.5), Stockpile({Goods.WHEAT: 200}), 0.5),
@@ -202,7 +210,7 @@ class TestPop(TestCase):
         (PopFactory.stratum(Strata.MIDDLE, 100, 0), False),
     ])
     def test_promotes(self, pop: Pop, expected: bool):
-        self.assertEqual(pop.promotes(), expected)
+        self.assertEqual(pop.promotes, expected)
 
     @parameterized.expand([
     # WELFARE_THRESHOLD = 0.51
@@ -356,7 +364,7 @@ class TestCommunity(TestCase):
 
         ('test', TypeError),
     ])
-    def test_add(self, community: Community, expected: type[Exception] | Community):
+    def test_add(self, community: Community | Pop, expected: type[Exception] | Community):
 
         if isinstance(expected, type) and issubclass(expected, Exception):
             self.assertRaises(expected, self.community.__add__, community)
@@ -389,14 +397,15 @@ class TestCommunity(TestCase):
         (ComFactory.job(), ComFactory.job({Jobs.FARMER: 100})),
         (PopFactory.job(Jobs.FARMER, 50, 1), ComFactory.job_welfare({Jobs.FARMER: (50, 0)})),
 
-        (ComFactory.job({Jobs.MINER: 100}), ValueError),
-        (PopFactory.job(Jobs.FARMER, 101), ValueError),
-        (PopFactory.job(Jobs.FARMER, 51, 1), ValueError),
-        (PopFactory.stratum(Strata.LOWER, 100), ValueError),
-        (ComFactory.stratum({Strata.LOWER: 100, Strata.MIDDLE: 100}), ValueError),
+        (ComFactory.job({Jobs.MINER: 100}), NegativeAmountError),
+        (PopFactory.job(Jobs.MINER, 100), NegativeAmountError),
+        (PopFactory.job(Jobs.FARMER, 101), NegativeAmountError),
+        (PopFactory.job(Jobs.FARMER, 51, 1), NegativeAmountError),
+        (PopFactory.stratum(Strata.LOWER, 100), NegativeAmountError),
+        (ComFactory.job({Jobs.FARMER: 50, Jobs.MINER: 50}), NegativeAmountError),
         ('test', TypeError),
     ])
-    def test_sub(self, community: Community, expected: type[Exception] | Community):
+    def test_sub(self, community: Community | Pop, expected: type[Exception] | Community):
 
         if isinstance(expected, type) and issubclass(expected, Exception):
             self.assertRaises(expected, self.community.__sub__, community)
@@ -422,3 +431,104 @@ class TestCommunity(TestCase):
 
                 self.assertAlmostEqual(val.welfare, new[key].welfare)
                 self.assertAlmostEqual(val.welfare, self.community[key].welfare)
+
+    @parameterized.expand([
+        (
+            ComFactory.job({Jobs.FARMER: 100}), Stockpile({Goods.WHEAT: 100})
+        ),
+        (
+            ComFactory.job({Jobs.FARMER: 100, Jobs.MINER: 100}), Stockpile({Goods.WHEAT: 200})
+        ),
+        (
+            ComFactory.job({Jobs.FARMER: 100, Jobs.MINER: 50}), Stockpile({Goods.WHEAT: 150})
+        ),
+
+        (
+            ComFactory.job({Jobs.FARMER: 100, Jobs.SPECIALIST: 100}), Stockpile({Goods.WHEAT: 300, Goods.IRON: 100})
+        ),
+        (
+            ComFactory.job({Jobs.FARMER: 100, Jobs.SPECIALIST: 50}), Stockpile({Goods.WHEAT: 200, Goods.IRON: 50})
+        ),
+    ])
+    def test_calc_goods_demand(self, community: Community, expected: Stockpile):
+        goods_demand = community.calc_goods_demand()
+
+        self.assertEqual(len(goods_demand), len(expected))
+        for good, amount in expected.items():
+            self.assertAlmostEqual(goods_demand[good], amount)
+
+    def test_update_welfares(self):
+        """ These tests have already been written in `test_utils` """
+
+    @parameterized.expand([
+
+        # WELFARE_THRESHOLD = 0.51
+        # GROWTH_RATE = 0.05
+        # PROMOTE_RATE = 0.01
+
+        (
+            ComFactory.job_welfare({Jobs.FARMER: (100, 0.5), Jobs.MINER: (100, 0.5), Jobs.SPECIALIST: (100, 0.5)}),
+            ComFactory.job_welfare({Jobs.FARMER: (95, 0.5), Jobs.MINER: (95, 0.5), Jobs.SPECIALIST: (95, 0.5)}),
+        ),
+
+        (
+            ComFactory.job_welfare({Jobs.FARMER: (100, 0.52), Jobs.MINER: (100, 0.52), Jobs.SPECIALIST: (100, 0.52)}),
+            ComFactory.job_welfare({Jobs.FARMER: (105, 0.52), Jobs.MINER: (105, 0.52), Jobs.SPECIALIST: (105, 0.52)}),
+        ),
+
+        (
+            ComFactory.job_welfare({Jobs.FARMER: (100, 0.52), Jobs.MINER: (100, 0.50), Jobs.SPECIALIST: (100, 0)}),
+            ComFactory.job_welfare({Jobs.FARMER: (105, 0.52), Jobs.MINER: (95, 0.50), Jobs.SPECIALIST: (95, 0)}),
+        ),
+    ])
+    def test_resize_all(self, community: Community, expected: Community):
+        community.resize_all()
+
+        self.assertEqual(len(community), len(expected))
+        for job, pop in expected.items():
+            self.assertAlmostEqual(community[job].size, pop.size)
+    
+    @parameterized.expand([
+
+        # PROMOTE_RATE = 0.01
+
+        (
+            ComFactory.job_welfare({Jobs.FARMER: (1000, 0.52)}),
+            ComFactory.stratum_welfare({Strata.MIDDLE: (10, 0.52)})
+        ),
+        (
+            ComFactory.job_welfare({Jobs.FARMER: (1000, 0.52), Jobs.MINER: (1000, 0.52)}),
+            ComFactory.stratum_welfare({Strata.MIDDLE: (20, 0.52)})
+        ),
+        (
+            ComFactory.job_welfare({Jobs.FARMER: (1000, 1), Jobs.MINER: (1000, 0.52)}),
+            ComFactory.stratum_welfare({Strata.MIDDLE: (20, 0.76)})
+        ),
+        (
+            ComFactory.job_welfare({Jobs.FARMER: (1000, 1), Jobs.MINER: (1000, 0.0)}),
+            ComFactory.stratum_welfare({Strata.MIDDLE: (10, 1)})
+        ),
+
+        (
+            ComFactory.job_welfare({Jobs.FARMER: (1000, 0.52), Jobs.MINER: (1000, 0.52), Jobs.SPECIALIST: (1000, 0.52)}),
+            ComFactory.stratum_welfare({Strata.MIDDLE: (20, 0.52)})
+        ),
+        (
+            ComFactory.job_welfare({Jobs.FARMER: (1000, 1), Jobs.MINER: (1000, 0.52), Jobs.SPECIALIST: (1000, 0.52)}),
+            ComFactory.stratum_welfare({Strata.MIDDLE: (20, 0.76)})
+        ),
+        (
+            ComFactory.job_welfare({Jobs.FARMER: (1000, 1), Jobs.MINER: (1000, 0), Jobs.SPECIALIST: (1000, 0.52)}),
+            ComFactory.stratum_welfare({Strata.MIDDLE: (10, 1)})
+        ),
+    ])
+    def test_promote_all(self, community: Community, expected: Community):
+        promoted = community.promote_all()
+
+        self.assertEqual(len(promoted), len(expected))
+
+        for job, pop in expected.items():
+            self.assertEqual(promoted[job].stratum, pop.stratum)
+            self.assertEqual(promoted[job].job, pop.job)
+            self.assertAlmostEqual(promoted[job].size, pop.size)
+            self.assertAlmostEqual(promoted[job].welfare, pop.welfare)

@@ -2,12 +2,14 @@ from __future__ import annotations
 from _collections_abc import dict_items, dict_values
 from collections.abc import Iterator
 from typing import Callable, Literal, Mapping, Optional, Self, Sequence, overload
+from source.exceptions import NegativeAmountError
 from source.goods import Goods, Stockpile
 from dataclasses import dataclass
 from enum import Enum, auto
 import math
 import numpy as np
 import copy
+
 
 class Strata(Enum):
     LOWER = auto()
@@ -113,10 +115,10 @@ class Pop:
             raise ValueError(f'Cannot perform arithmetic operations between pops of different strata.\nInfo: {self.stratum}, {__value.stratum}')
 
         if sub and __value.size > self.size:
-            raise ValueError(f'Cannot subtract pops because it would result in a negative amount.\nInfo: {self.size}, {__value.size}')
+            raise NegativeAmountError(f'Taking {__value.size} pops from {self.size} pops results in negative size.')
 
         if sub and __value.size * __value.welfare > self.size * self.welfare:
-            raise ValueError(f'Removing {__value.size} pops with {__value.welfare} from {self.size} pops with {self.welfare} would result in negative welfare.')
+            raise NegativeAmountError(f'Taking a welfare pool of {__value.size * __value.welfare} from {self.size * self.welfare} results in negative welfare.')
 
     def __add__(self, __value: Pop) -> Pop:
         self.__scrutinize(__value)
@@ -200,6 +202,7 @@ class Pop:
         else:
             self.size -= self.size * Pop.GROWTH_RATE
     
+    @property
     def promotes(self) -> bool:
         """ Checks if the object can promote to a higher stratum based on its stratum and welfare. """
 
@@ -405,22 +408,9 @@ class Community(dict):
         """ Checks if it is possible to perform an arithmetic operation with the passed value. """
 
         if not isinstance(__value, (Pop, Community)):
-            raise TypeError('Only `Pop` or `Community` objects and be added to a `Community` object.')
-
-        if sub and isinstance(__value, Pop):
-            if __value.size > self[__value.job].size:
-                raise ValueError(f'Subtracting {__value.size} pops from the {self[__value.job].size} in this community would result in negative population size.')
-
-            if __value.size * __value.welfare > self[__value.job].size * self[__value.job].welfare:
-                raise ValueError(f'Cannot subtract pops with a total welfare of {__value.size * __value.welfare} when the community only has {self[__value.job].size * self[__value.job].welfare} total welfare.')
-
-        elif sub and isinstance(__value, Community):
-            for pop in __value.values():
-                if pop.size > self[pop.job].size:
-                    raise ValueError(f'Subtracting {pop.size} pops from the {self[pop.job].size} in this community would result in negative population size.')
-
-                if pop.size * pop.welfare > self[pop.job].size * self[pop.job].welfare:
-                    raise ValueError(f'Cannot subtract pops with a total welfare of {pop.size * pop.welfare} when the community only has {self[pop.job].size * self[pop.job].welfare} total welfare.')
+            raise TypeError(f'`Community` object only performs arithmetic operations with `Community` or `Pop` objects, but {type(__value)} was passed.')
+                
+        # All further checks for size and welfare are redundant since they'll be performed inside the `Pop` class anyways.
 
     def __add__(self, __value: Pop | Community) -> Community:
 
@@ -493,6 +483,34 @@ class Community(dict):
         pops = list(map(str, pops))
         return f'<Community obj.: {', '.join(pops)} >'
 
+    def calc_goods_demand(self) -> Stockpile:
+
+        total_demand = Stockpile()
+        
+        for pop in self.values():
+            total_demand += pop.calc_consumption()
+        
+        return total_demand
+
+    def update_welfares(self, stockpile: Stockpile, algorithm: type[SharingAlg]):
+        """ The sharing algorithms are not important and therefore abstracted through strategy classes. """
+        
+        algorithm.share(self, stockpile)
+
+    def resize_all(self):
+        
+        for pop in self.values():
+            pop.resize()
+
+    def promote_all(self) -> Community:
+
+        promoted = Community()
+
+        for pop in self.values():
+            if pop.promotes: promoted += pop.promote()
+        
+        return promoted
+
 class ComFactory:
 
     """ Container class for `Community` factory methods. """
@@ -553,3 +571,7 @@ Info: job/stratum: {job_stratum}, size/welfare: {size_welfare}.""")
         """ Creates all the `Pop`s with the specified stratum, sizes and welfare and returns a `Community` containing them. """
 
         return ComFactory.__create_community(PopFactory.stratum, want)
+
+
+
+from source.utils import SharingAlg

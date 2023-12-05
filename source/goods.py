@@ -1,9 +1,12 @@
 from __future__ import annotations
 from _collections_abc import dict_items, dict_values
+import copy
 from typing import Iterator, Optional, Self, Sequence
 from dataclasses import dataclass
 from math import isclose
 from enum import Enum
+
+from source.exceptions import NegativeAmountError
 
 
 @dataclass
@@ -44,9 +47,9 @@ class Stockpile(dict):
                 raise TypeError(f'`Stockpile` objects can only have `int` or `float` as values.')
             
             if value < 0.0:
-                raise ValueError(f'`Stockpile` object cannot have negative values.')
+                raise NegativeAmountError(f'`Stockpile` object cannot have negative values.')
             
-            if value < 0 or isclose(value, 0.0):
+            if isclose(value, 0.0):
                 del self[key]
 
     def values(self) -> dict_values[Goods, int | float]:
@@ -81,24 +84,79 @@ class Stockpile(dict):
     def __iter__(self) -> Iterator[Goods]:
         return super().__iter__()
 
-    def __iadd__(self, __value: Stockpile) -> Self:
-        if not isinstance(__value, Stockpile):
-            raise TypeError(f'Only other `Stockpile` objects can be added to a `Stockpile` object.')
+    def __scrutinize(self, __value: Stockpile | int | float, *, sub=False, div=False):
+
+        if div:
+            if sub:
+                raise ValueError('An arithmetic operation can\'t be both subtraction and division.')
+            
+            if not isinstance(__value, (int, float)):
+                raise TypeError(f'`Stockpile` objects can only be divided by integers or floating points.')
+            
+            if __value == 0:
+                raise ZeroDivisionError(f'Cannot divide `Stockpile` object by zero.')
+            
+            if __value < 0:
+                raise NegativeAmountError(f'Cannot divide `Stockpile` object by negative numbers.')
         
+        elif not isinstance(__value, Stockpile):
+                raise TypeError(f'Only other `Stockpile` objects can be added to a `Stockpile` object.')
+            
+        elif sub:
+            for good, amount in __value.items():
+                if amount > self[good]:
+                    raise NegativeAmountError(f'Operation resulted in a `Stockpile` object with negative goods.')
+
+    def __add__(self, __value: Stockpile) -> Stockpile:
+
+        self.__scrutinize(__value)
+
+        new = copy.deepcopy(self)
+
+        for good, amount in __value.items():
+            new[good] += amount
+        
+        return new
+
+    def __sub__(self, __value: Stockpile) -> Stockpile:
+
+        self.__scrutinize(__value, sub=True)
+
+        new = copy.deepcopy(self)
+
+        for good, amount in __value.items():
+            new[good] -= amount
+        
+        new.__fix()
+        return new
+
+    def __iadd__(self, __value: Stockpile) -> Self:
+        
+        self.__scrutinize(__value)
+
         for good, amount in __value.items():
             self[good] += amount        
         
         return self
     
     def __isub__(self, __value: Stockpile) -> Self:
-        if not isinstance(__value, Stockpile):
-            raise TypeError(f'Only other `Stockpile` objects can be added to a `Stockpile` object.')
+        
+        self.__scrutinize(__value, sub=True)
         
         for good, amount in __value.items():
-            if amount > self[good]:
-                raise ValueError(f'Operation resulted in a `Stockpile` object with negative goods.')
-
             self[good] -= amount        
         
+        self.__fix()
         return self
+    
+    def __truediv__(self, __value: int | float) -> Stockpile:
+
+        self.__scrutinize(__value, div=True)
+
+        divided = Stockpile()
+
+        for good, amount in self.items():
+            divided[good] = amount / __value
+        
+        return divided
     

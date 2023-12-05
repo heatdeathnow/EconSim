@@ -1,30 +1,13 @@
 ## Improvements:
 
-### Population
-High level methods for manipulating `Workforce` objects or manipulating several `Pop` objects all at once:
-1. Calculate the demand of goods for everyone.
-2. Calculate the demand of labor for the workforce.  # !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!! *
-3. A method for updating the `welfare` for every pop in a workforce via a passed stockpile.
-4. A method for updating the `size` for every pop in a workforce via their welfare.
-5. A method for promoting all the pops in a workforce that can be promoted.
+### Workforce/Extractor/Industry
+Change how the `Workforce` class is supposed to be and what it is supposed to achieve. It should contain a `Community` object within itself and specialize on its own things. Maybe merge it with `Extractor`. Maybe have an abstract superclass `Industry` with the intent of having different production methods (e.g.: farming and crafting).
+1. Have a `needed_workers` attribute specifying how many workers it needs to produce its good.
+2. Have a `produces` attribute specifying the good it produces.
+3. Have a `calc_labor_demand` method for getting a `Community` object containing the workers it needs.
+4. Have a `calc_efficiency` method that returns considers it 100% if there are more and the same amount of pops in a job that it needs. Change the behaviour so that having more pops than necessary won't lower the efficiency, this should make things easier. Having more pops than necessary would still indirectly make things more inefficient because then the other jobs won't be able to have their desired amount of pops because of the population limit. This should fix ¹.
 
-* Study the possibility of having another class to interface the `Extractor` and the `Workforce` so that the `Workforce` doesn't need a `needed_jobs` attribute or something similar.
-
-### Exceptions
-1. Add `NegativeAmountError`
-
----
-### Simulation
-2. Go over the simulation code and add special methods to the `Pop`, `Workforce` etc classes in order to make manipulating them more easily based on what I need to do in the simulation.
-
----
-### Workforce / Extractor
-1. As of now, there can be a `Workforce` object that is supposed to have 100 `FARMER`s overlooked by 10 `SPECIALIST`s. If this object has 0 farmers and 10 specialists, it has an efficiency of 50%, which is nonsensical.
-2. Move the calculation of the `labor_demand` and the `needed_jobs` attribute either to the `Extractor` class, or to the possible new interface class that will intermediate this.
-
----
-### Stockpile
-1. Study the idea of having the link_stockpile method be inherited through a MixIn abstract class.
+¹ As of now, there can be a `Workforce` object that is supposed to have 100 `FARMER`s overlooked by 10 `SPECIALIST`s. If this object has 0 farmers and 10 specialists, it has an efficiency of 50%, which is nonsensical.
 
 ## Additional features:
 ### Testing for visualization module.
