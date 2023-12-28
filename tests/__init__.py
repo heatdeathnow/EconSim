@@ -11,7 +11,7 @@ for directory in tests_path.iterdir():
 
         module_name = f'{tests_path.name}.{directory.with_suffix('').name}'
 
-        if module_name in ['tests.test_prod']: continue
+        if module_name in []: continue
 
         module = import_module(module_name)
 

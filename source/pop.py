@@ -63,6 +63,7 @@ class Jobs(Enum):
     MINER = auto()
     SPECIALIST = auto()
 
+    @property
     def stratum(self) -> Strata:
         
         if self in Strata.LOWER.jobs:
@@ -108,8 +109,8 @@ class Pop:
         if not isinstance(__value, Pop):
             raise TypeError(f'Arithmetic operations between a `Pop` type and a `{type(__value)}` type are not allowed.')
 
-        if self.job != __value.job and (self.job != Jobs.NONE or __value.job != Jobs.NONE):
-            raise ValueError(f'Cannot perform arithmetic operations between pops with different jobs.\nInfo: ` {self.job}, {__value.job}')
+        if self.job != __value.job and self.job != Jobs.NONE and __value.job != Jobs.NONE:
+            raise ValueError(f'Cannot perform arithmetic operations between pops with different jobs.\nInfo: {self.job}, {__value.job}')
         
         if self.stratum != __value.stratum:
             raise ValueError(f'Cannot perform arithmetic operations between pops of different strata.\nInfo: {self.stratum}, {__value.stratum}')

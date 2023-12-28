@@ -14,6 +14,9 @@ class Good:
     name: str
     recipe: Optional[Sequence[Recipe]] = None
 
+    def __repr__(self) -> str:
+        return self.name
+
 class Recipe:
     """To be implemented"""
 

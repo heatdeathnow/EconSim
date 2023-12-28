@@ -1,301 +1,280 @@
 from parameterized import parameterized
-from typing import Optional, Sequence
+from typing import Optional
 from unittest import TestCase
+from source.exceptions import NegativeAmountError
 
-from pyparsing import Opt
-from source.prod import CannotEmploy, Extractor, Workforce, extractor_factory, workforce_factory
-from source.pop import Jobs, Pop, Strata, PopFactory
+from source.pop import ComFactory, Community, Jobs, Pop, Strata, PopFactory
 from source.goods import Goods, Stockpile
+from source.prod import ExtFactory, Extractor
 
-class TestWorkforce(TestCase):
+class TestExtractorFactory(TestCase):
 
     @parameterized.expand([
-        ({Jobs.FARMER: 100, Jobs.SPECIALIST: 10},
-         {Jobs.FARMER: PopFactory.job(Jobs.FARMER, 0), Jobs.SPECIALIST: PopFactory.job(Jobs.SPECIALIST, 0)},
-          110),
-        
-        ({Jobs.FARMER: 100},
-         {Jobs.FARMER: PopFactory.job(Jobs.FARMER, 0)},
-          100),
-        
-        ({Jobs.FARMER: 0},
-         {Jobs.FARMER: PopFactory.job(Jobs.FARMER, 0)},
-          100, ValueError),
-        
-        ({Jobs.FARMER: -100},
-         {Jobs.FARMER: PopFactory.job(Jobs.FARMER, 0)},
-          100, ValueError),
-        
-        ({'farmer': 0},
-         {Jobs.FARMER: PopFactory.job(Jobs.FARMER, 0)},
-          100, TypeError),
-        ])
-    def test_init_no_pops(self, needed: dict[Jobs, int | float], 
-                          expected_pops: dict[Jobs, Pop], 
-                          expected_capacity: int | float,
-                          expected_raises: Optional[type[Exception]] = None):
-        
-        if expected_raises:
-            with self.assertRaises(expected_raises):
-                workforce_factory(needed, Stockpile())
+        (Extractor(Goods.WHEAT, ComFactory.job(), {Jobs.FARMER: 990, Jobs.SPECIALIST: 10}),
+        Goods.WHEAT, {Jobs.FARMER: 990, Jobs.SPECIALIST: 10}, None),
+        (Extractor(Goods.IRON, ComFactory.job(), {Jobs.FARMER: 990, Jobs.SPECIALIST: 10}),
+        Goods.IRON, {Jobs.FARMER: 990, Jobs.SPECIALIST: 10}, None),
+        (Extractor(Goods.WHEAT, ComFactory.job({Jobs.FARMER: 100, Jobs.SPECIALIST: 10}), {Jobs.FARMER: 990, Jobs.SPECIALIST: 10}),
+        Goods.WHEAT, {Jobs.FARMER: 990, Jobs.SPECIALIST: 10}, ComFactory.job({Jobs.FARMER: 100, Jobs.SPECIALIST: 10})),
+        (Extractor(Goods.WHEAT, ComFactory.job({Jobs.FARMER: 999, Jobs.SPECIALIST: 1}), {Jobs.FARMER: 990, Jobs.SPECIALIST: 10}),
+        Goods.WHEAT, {Jobs.FARMER: 990, Jobs.SPECIALIST: 10}, ComFactory.job({Jobs.FARMER: 999, Jobs.SPECIALIST: 1})),
+
+        (Extractor(Goods.WHEAT, ComFactory.job({Jobs.FARMER: 100, Jobs.SPECIALIST: 10}), {Jobs.FARMER: 990, Jobs.SPECIALIST: 10}),
+        Goods.WHEAT, {Jobs.FARMER: 990, Jobs.SPECIALIST: 10}, {Jobs.FARMER: 100, Jobs.SPECIALIST: 10}),
+        (Extractor(Goods.WHEAT, ComFactory.job({Jobs.FARMER: 999, Jobs.SPECIALIST: 1}), {Jobs.FARMER: 990, Jobs.SPECIALIST: 10}),
+        Goods.WHEAT, {Jobs.FARMER: 990, Jobs.SPECIALIST: 10}, {Jobs.FARMER: 999, Jobs.SPECIALIST: 1}),
+    
+        (ValueError,
+        Goods.WHEAT, {Jobs.FARMER: 990, Jobs.SPECIALIST: 10}, ComFactory.job({Jobs.MINER: 10})),
+        (ValueError,
+        Goods.WHEAT, {Jobs.FARMER: 990, Jobs.SPECIALIST: 10}, {Jobs.MINER: 10}),
+        (ValueError,
+        Goods.WHEAT, {Jobs.FARMER: 990, Jobs.NONE: 10}, None),
+        (ValueError,
+        Goods.WHEAT, {Jobs.FARMER: 990, Jobs.SPECIALIST: 10}, ComFactory.job({Jobs.FARMER: 991, Jobs.SPECIALIST: 10})),
+
+        (NegativeAmountError,
+        Goods.WHEAT, {Jobs.FARMER: 990, Jobs.SPECIALIST: -10}, None),
+
+        (TypeError,
+        Jobs.FARMER, {Jobs.FARMER: 990, Jobs.SPECIALIST: 10}, None),
+        (TypeError,
+        Goods.WHEAT, {Goods.WHEAT: 990, Jobs.SPECIALIST: 10}, None)
+    ])
+    def test_default(self,
+                     expected: Extractor | type[Exception],
+                     product: Goods,
+                     needed_workers: dict[Jobs, int | float],
+                     workforce: Optional[Community] = None):
+
+        if isinstance(expected, type) and issubclass(expected, Exception):
+            self.assertRaises(expected, ExtFactory.default, product, needed_workers, workforce)
 
         else:
-            workforce = workforce_factory(needed, Stockpile())
+            extractor = ExtFactory.default(product, needed_workers, workforce)
 
-            self.assertEqual(len(workforce.pops), len(expected_pops))
-            for real_job, expected_job in zip(workforce.pops, expected_pops):
-                self.assertEqual(real_job, expected_job)
+            self.assertEqual(extractor.product, expected.product)
+
+            self.assertEqual(len(extractor.workforce), len(expected.workforce))
+            for job, pop in extractor.workforce.items():
+                expected_pop = expected.workforce[job]
+                self.assertEqual(expected_pop.size, pop.size)
+                self.assertEqual(expected_pop.stratum, pop.stratum)
             
-            self.assertEqual(workforce.capacity, expected_capacity)
-            self.assertEqual(workforce.size, 0)
-    
+            self.assertEqual(len(extractor.needed_workers), len(expected.needed_workers))
+            for job, size in extractor.needed_workers.items():
+                self.assertEqual(expected.needed_workers[job], size)
+
     @parameterized.expand([
-        ({Jobs.FARMER: 100, Jobs.SPECIALIST: 10},
-         [PopFactory.job(Jobs.FARMER, 50), PopFactory.job(Jobs.SPECIALIST, 50)],
-         110, 100),
+        (Extractor(Goods.WHEAT, ComFactory.job({Jobs.FARMER: 990, Jobs.SPECIALIST: 10}), {Jobs.FARMER: 990, Jobs.SPECIALIST: 10}),
+        Goods.WHEAT, {Jobs.FARMER: 990, Jobs.SPECIALIST: 10}),
+        (Extractor(Goods.IRON, ComFactory.job({Jobs.FARMER: 990, Jobs.SPECIALIST: 10}), {Jobs.FARMER: 990, Jobs.SPECIALIST: 10}),
+        Goods.IRON, {Jobs.FARMER: 990, Jobs.SPECIALIST: 10}),
 
-        ({Jobs.FARMER: 100, Jobs.SPECIALIST: 10},
-         [PopFactory.job(Jobs.FARMER, 60), PopFactory.job(Jobs.SPECIALIST, 50)],
-         110, 110),
-        
-        ({Jobs.FARMER: 100, Jobs.SPECIALIST: 10},
-         [PopFactory.job(Jobs.FARMER, 50), PopFactory.job(Jobs.MINER, 50)],
-         0, 0, ValueError),
+        (ValueError,
+        Goods.WHEAT, {Jobs.FARMER: 990, Jobs.NONE: 10}),
 
-        ({Jobs.FARMER: 100, Jobs.SPECIALIST: 10},
-         [PopFactory.job(Jobs.FARMER, 61), PopFactory.job(Jobs.SPECIALIST, 50)],
-         0, 0, ValueError)
-        ])
-    def test_init_pops(self, needed: dict[Jobs, int | float],
-                       pops: Sequence[Pop], 
-                       expected_capacity: int | float, 
-                       expected_size: int | float, 
-                       expected_raises: Optional[type[Exception]] = None):
-        if expected_raises:
-            with self.assertRaises(expected_raises):
-                workforce_factory(needed, Stockpile(), pops)
+        (TypeError,
+        Jobs.FARMER, {Jobs.FARMER: 990, Jobs.SPECIALIST: 10}),
+        (TypeError,
+        Goods.WHEAT, {Goods.WHEAT: 990, Jobs.SPECIALIST: 10})
+    ])
+    def test_full(self, expected: Extractor | type[Exception], product: Goods, needed_workers: dict[Jobs, int | float]):
+
+        if isinstance(expected, type) and issubclass(expected, Exception):
+            self.assertRaises(expected, ExtFactory.full, product, needed_workers)
 
         else:
-            workforce = workforce_factory(needed, Stockpile(), pops)
-            self.assertEqual(workforce.capacity, expected_capacity)
-            self.assertEqual(workforce.size, expected_size)
+            extractor = ExtFactory.full(product, needed_workers)
 
-    @parameterized.expand([
-        (workforce_factory({Jobs.FARMER: 100, Jobs.SPECIALIST: 10}, Stockpile(),
-                           [PopFactory.job(Jobs.FARMER, 100), PopFactory.job(Jobs.SPECIALIST, 10)]),
-                           1.0),
+            self.assertEqual(extractor.product, expected.product)
 
-        (workforce_factory({Jobs.FARMER: 100, Jobs.SPECIALIST: 10}, Stockpile(),
-                           [PopFactory.job(Jobs.FARMER, 100)]),
-                           0.5),
-        
-        (workforce_factory({Jobs.FARMER: 100, Jobs.SPECIALIST: 10}, Stockpile(),
-                           [PopFactory.job(Jobs.FARMER, 50), PopFactory.job(Jobs.SPECIALIST, 10)]),
-                           0.75),
-        
-        (workforce_factory({Jobs.FARMER: 100, Jobs.SPECIALIST: 10}, Stockpile(),
-                           [PopFactory.job(Jobs.SPECIALIST, 10)]),
-                           0.50),
-        
-        (workforce_factory({Jobs.FARMER: 100, Jobs.SPECIALIST: 10}, Stockpile()),
-                           0.0),
-        ])
-    def test_efficiency(self, workforce: Workforce, expected_efficiency: float):
-        self.assertAlmostEqual(workforce.efficiency, expected_efficiency)
-
-    @parameterized.expand([
-        (workforce_factory({Jobs.FARMER: 100, Jobs.SPECIALIST: 10}, Stockpile()),
-         {Jobs.FARMER: 100, Jobs.SPECIALIST: 10}),
-
-        (workforce_factory({Jobs.FARMER: 100, Jobs.SPECIALIST: 10}, Stockpile(), [PopFactory.job(Jobs.FARMER, 100)]),
-         {Jobs.SPECIALIST: 10}),
-        
-        (workforce_factory({Jobs.FARMER: 100, Jobs.SPECIALIST: 10}, Stockpile(), [PopFactory.job(Jobs.SPECIALIST, 10)]),
-         {Jobs.FARMER: 100}),
-
-        (workforce_factory({Jobs.FARMER: 100, Jobs.SPECIALIST: 10}, Stockpile(), 
-                           [PopFactory.job(Jobs.FARMER, 50), PopFactory.job(Jobs.SPECIALIST, 5)]),
-         {Jobs.FARMER: 50, Jobs.SPECIALIST: 5}),
-        
-        (workforce_factory({Jobs.FARMER: 100, Jobs.SPECIALIST: 10}, Stockpile(), 
-                           [PopFactory.job(Jobs.FARMER, 100), PopFactory.job(Jobs.SPECIALIST, 10)]), {}),
-        
-        (workforce_factory({Jobs.FARMER: 100, Jobs.SPECIALIST: 10}, Stockpile(), [PopFactory.job(Jobs.FARMER, 105)]),
-         {Jobs.SPECIALIST: 5}),
-        
-        (workforce_factory({Jobs.FARMER: 100, Jobs.SPECIALIST: 10}, Stockpile(), [PopFactory.job(Jobs.SPECIALIST, 20)]),
-         {Jobs.FARMER: 90})
-        ])
-    def test_labor_demand(self, workforce: Workforce, expected_demand: dict[Jobs, int | float]):
-        self.assertEqual(len(workforce.labor_demand()), len(expected_demand))
-
-        for (real_job, real_amount), (expected_job, expected_amount) in zip(workforce.labor_demand().items(), expected_demand.items()):
-            self.assertEqual(real_job, expected_job)
-            self.assertAlmostEqual(real_amount, expected_amount)
-
-    @parameterized.expand([
-        #  LOWER: {Goods.WHEAT: 1.0}
-        # MIDDLE: {Goods.WHEAT: 2.0, Goods.IRON: 1.0}
-
-        (workforce_factory({Jobs.FARMER: 100, Jobs.SPECIALIST: 10}, Stockpile(),
-                           [PopFactory.job(Jobs.FARMER, 100), PopFactory.job(Jobs.SPECIALIST, 10)]),
-        Stockpile({Goods.WHEAT: 100 + 20, Goods.IRON: 10})),
-
-        (workforce_factory({Jobs.FARMER: 100, Jobs.SPECIALIST: 10}, Stockpile(),
-                           [PopFactory.job(Jobs.FARMER, 50), PopFactory.job(Jobs.SPECIALIST, 5)]),
-        Stockpile({Goods.WHEAT: 50 + 10, Goods.IRON: 5})),
-
-        (workforce_factory({Jobs.FARMER: 100, Jobs.SPECIALIST: 10}, Stockpile(), [PopFactory.job(Jobs.FARMER, 100)]), 
-         Stockpile({Goods.WHEAT: 100})),
-
-        (workforce_factory({Jobs.FARMER: 100, Jobs.SPECIALIST: 10}, Stockpile()), 
-         Stockpile())
-        ])
-    def test_nominal_goods_demand(self, workforce: Workforce, expected_demand: Stockpile):
-        self.assertEqual(len(workforce.nominal_goods_demand), len(expected_demand))
-
-        for (real_good, real_amount), (expected_good, expected_amount) in zip(workforce.nominal_goods_demand.items(), expected_demand.items()):
-            self.assertEqual(real_good, expected_good)
-            self.assertAlmostEqual(real_amount, expected_amount)
-    
-    @parameterized.expand([
-        #  LOWER: {Goods.WHEAT: 1.0}
-        # MIDDLE: {Goods.WHEAT: 2.0, Goods.IRON: 1.0}
-
-        (workforce_factory({Jobs.FARMER: 100, Jobs.SPECIALIST: 10}, Stockpile(),
-                           [PopFactory.job(Jobs.FARMER, 100), PopFactory.job(Jobs.SPECIALIST, 10)]),
-        Stockpile({Goods.WHEAT: 100 + 20, Goods.IRON: 10})),
-
-        (workforce_factory({Jobs.FARMER: 100, Jobs.SPECIALIST: 10}, Stockpile({Goods.WHEAT: 25, Goods.IRON: 2}),
-                           [PopFactory.job(Jobs.FARMER, 100), PopFactory.job(Jobs.SPECIALIST, 10)]),
-        Stockpile({Goods.WHEAT: 95, Goods.IRON: 8})),
-
-        (workforce_factory({Jobs.FARMER: 100, Jobs.SPECIALIST: 10}, Stockpile({Goods.WHEAT: 120, Goods.IRON: 10}),
-                           [PopFactory.job(Jobs.FARMER, 100), PopFactory.job(Jobs.SPECIALIST, 10)]),
-        Stockpile()),
-
-        (workforce_factory({Jobs.FARMER: 100, Jobs.SPECIALIST: 10}, Stockpile({Goods.WHEAT: 500, Goods.IRON: 500}),
-                           [PopFactory.job(Jobs.FARMER, 100), PopFactory.job(Jobs.SPECIALIST, 10)]),
-        Stockpile()),
-
-        (workforce_factory({Jobs.FARMER: 100, Jobs.SPECIALIST: 10}, Stockpile({Goods.IRON: 500}),
-                           [PopFactory.job(Jobs.FARMER, 100), PopFactory.job(Jobs.SPECIALIST, 10)]),
-        Stockpile({Goods.WHEAT: 120})),
-        ])
-    def test_effective_goods_demand(self, workforce: Workforce, expected_demand: Stockpile):
-        self.assertEqual(len(workforce.effective_goods_demand), len(expected_demand))
-
-        for (real_good, real_amount), (expected_good, expected_amount) in zip(workforce.effective_goods_demand.items(), expected_demand.items()):
-            self.assertEqual(real_good, expected_good)
-            self.assertAlmostEqual(real_amount, expected_amount)
+            self.assertEqual(len(extractor.workforce), len(expected.workforce))
+            for job, pop in extractor.workforce.items():
+                expected_pop = expected.workforce[job]
+                self.assertEqual(expected_pop.size, pop.size)
+                self.assertEqual(expected_pop.stratum, pop.stratum)
+            
+            self.assertEqual(len(extractor.needed_workers), len(expected.needed_workers))
+            for job, size in extractor.needed_workers.items():
+                self.assertEqual(expected.needed_workers[job], size)
 
 class TestExtractor(TestCase):
+
+    @parameterized.expand([
+        (ExtFactory.default(Goods.WHEAT, {Jobs.FARMER: 990, Jobs.SPECIALIST: 10}), 1000),
+        (ExtFactory.default(Goods.WHEAT, {Jobs.FARMER: 500, Jobs.MINER: 500}), 1000),
+        (ExtFactory.default(Goods.WHEAT, {Jobs.FARMER: 250, Jobs.MINER: 500}), 750),
+    ])
+    def test_capacity(self, extractor: Extractor, expected: int | float):
+        self.assertAlmostEqual(extractor.capacity, expected)
+
+    @parameterized.expand([
+        (ExtFactory.full(Goods.WHEAT, {Jobs.FARMER: 990, Jobs.SPECIALIST: 10}), 1000),
+
+        (ExtFactory.default(Goods.WHEAT, {Jobs.FARMER: 990, Jobs.SPECIALIST: 10}, {Jobs.FARMER: 500, Jobs.SPECIALIST: 10}), 510),
+
+        (ExtFactory.default(Goods.WHEAT, {Jobs.FARMER: 990, Jobs.SPECIALIST: 10}, {Jobs.FARMER: 490, Jobs.SPECIALIST: 10}), 500),
+
+        (ExtFactory.default(Goods.WHEAT, {Jobs.FARMER: 990, Jobs.SPECIALIST: 10}, {Jobs.FARMER: 490}), 490),
+
+        (ExtFactory.default(Goods.WHEAT, {Jobs.FARMER: 990, Jobs.SPECIALIST: 10}), 0),
+    ])
+    def test_calc_total_workers(self, extractor: Extractor, expected: int | float):
+        self.assertAlmostEqual(extractor.calc_total_workers(), expected)
     
     @parameterized.expand([
-        (extractor_factory(
-            workforce_factory({Jobs.FARMER: 100, Jobs.SPECIALIST: 10}, Stockpile()),
-            Goods.WHEAT, Stockpile()), Stockpile()),
-        
-        (extractor_factory(
-            workforce_factory({Jobs.FARMER: 100, Jobs.SPECIALIST: 10}, Stockpile(),
-                              [PopFactory.job(Jobs.FARMER, 100)]),
-            Goods.WHEAT, Stockpile()), Stockpile({Goods.WHEAT: 1.25 * 100 * 0.5})),
-        
-        (extractor_factory(
-            workforce_factory({Jobs.FARMER: 100, Jobs.SPECIALIST: 10}, Stockpile(),
-                              [PopFactory.job(Jobs.FARMER, 100), PopFactory.job(Jobs.SPECIALIST, 10)]),
-            Goods.WHEAT, Stockpile()), Stockpile({Goods.WHEAT: 1.25 * 110 * 1})),
-        
-        (extractor_factory(
-            workforce_factory({Jobs.FARMER: 100, Jobs.SPECIALIST: 10}, Stockpile(),
-                              [PopFactory.job(Jobs.SPECIALIST, 10)]),
-            Goods.WHEAT, Stockpile()), Stockpile({Goods.WHEAT: 1.25 * 10 * 0.5})),
-        
-        (extractor_factory(
-            workforce_factory({Jobs.FARMER: 100, Jobs.SPECIALIST: 10}, Stockpile(),
-                              [PopFactory.job(Jobs.FARMER, 50), PopFactory.job(Jobs.SPECIALIST, 5)]),
-            Goods.WHEAT, Stockpile()), Stockpile({Goods.WHEAT: 1.25 * 55 * 0.5})),
-        
-        (extractor_factory(
-            workforce_factory({Jobs.FARMER: 100, Jobs.SPECIALIST: 10}, Stockpile(),
-                              [PopFactory.job(Jobs.FARMER, 75), PopFactory.job(Jobs.SPECIALIST, 5)]),
-            Goods.WHEAT, Stockpile()), Stockpile({Goods.WHEAT: 1.25 * 80 * 0.625})),
-    ])
-    def test_produces(self, extractor: Extractor, expected: Stockpile):
-        produced = extractor.produce()
+        (ExtFactory.default(Goods.WHEAT, {Jobs.FARMER: 990, Jobs.SPECIALIST: 10}), 0.0),
 
-        self.assertEqual(len(produced), len(expected))
-        for (real_good, real_amount), (expected_good, expected_amount) in zip(produced.items(), expected.items()):
-            self.assertEqual(real_good, expected_good)
-            self.assertAlmostEqual(real_amount, expected_amount)
+        (ExtFactory.full(Goods.WHEAT, {Jobs.FARMER: 990, Jobs.SPECIALIST: 10}), 1.0),
+
+        (ExtFactory.default(Goods.WHEAT, {Jobs.FARMER: 990, Jobs.SPECIALIST: 10}, {Jobs.FARMER: 495, Jobs.SPECIALIST: 5}), 0.5),
+
+        (ExtFactory.default(Goods.WHEAT, {Jobs.FARMER: 990, Jobs.SPECIALIST: 10}, {Jobs.FARMER: 495}), 0.25),
+        
+        # This needs to, and will eventually, be changed
+        (ExtFactory.default(Goods.WHEAT, {Jobs.FARMER: 990, Jobs.SPECIALIST: 10}, {Jobs.SPECIALIST: 10}), 0.5),
+
+        (ExtFactory.default(Goods.WHEAT, {Jobs.FARMER: 990, Jobs.SPECIALIST: 10}, {Jobs.SPECIALIST: 5}), 0.25),
+    ])
+    def test_calc_efficiency(self, extractor: Extractor, expected: float):
+        self.assertAlmostEqual(extractor.calc_efficiency(), expected)
+    
+    @parameterized.expand([
+        # Current fixed throughput (will be changed in the future.): THROUGHPUT = 1.25
+        # Extractor.THROUGHPUT * self.calc_total_workers() * self.calc_efficiency()
+
+        (ExtFactory.default(Goods.WHEAT, {Jobs.FARMER: 990, Jobs.SPECIALIST: 10}), Stockpile()),
+
+        # 1.25 * 1000 * 1.0 = 1250
+        (ExtFactory.full(Goods.WHEAT, {Jobs.FARMER: 990, Jobs.SPECIALIST: 10}), Stockpile({Goods.WHEAT: 1250})),
+        (ExtFactory.full(Goods.IRON, {Jobs.MINER: 990, Jobs.SPECIALIST: 10}), Stockpile({Goods.IRON: 1250})),
+
+        # 1.25 * 1000 * 0.5 = 625
+        (ExtFactory.default(Goods.WHEAT, {Jobs.FARMER: 990, Jobs.SPECIALIST: 10}, {Jobs.FARMER: 1000}),
+         Stockpile({Goods.WHEAT: 625})),
+        
+        # 1.25 * 990 * 0.5 = 618.75
+        (ExtFactory.default(Goods.WHEAT, {Jobs.FARMER: 990, Jobs.SPECIALIST: 10}, {Jobs.FARMER: 990}),
+         Stockpile({Goods.WHEAT: 618.75})),
+
+        # 1.25 * 10 * 0.5 = 6.25
+        (ExtFactory.default(Goods.WHEAT, {Jobs.FARMER: 990, Jobs.SPECIALIST: 10}, {Jobs.SPECIALIST: 10}),  # WILL BE CHANGED
+         Stockpile({Goods.WHEAT: 6.25})),
+        
+        # 1.25 * 495 * 0.25 = 154.6875
+        (ExtFactory.default(Goods.WHEAT, {Jobs.FARMER: 990, Jobs.SPECIALIST: 10}, {Jobs.FARMER: 495}),
+         Stockpile({Goods.WHEAT: 154.6875})),
+
+        # 1.25 * 5 * 0.25 = 1.5625
+        (ExtFactory.default(Goods.WHEAT, {Jobs.FARMER: 990, Jobs.SPECIALIST: 10}, {Jobs.SPECIALIST: 5}),  # WILL BE CHANGED
+         Stockpile({Goods.WHEAT: 1.5625})),
+
+        # 1.25 * 500 * 0.5 = 312.5
+        (ExtFactory.default(Goods.WHEAT, {Jobs.FARMER: 990, Jobs.SPECIALIST: 10}, {Jobs.FARMER: 495, Jobs.SPECIALIST: 5}),
+         Stockpile({Goods.WHEAT: 312.5})),
+        
+        # 1.25 * 500 * 0.r7020 = 438.7r62
+        (ExtFactory.default(Goods.WHEAT, {Jobs.FARMER: 990, Jobs.SPECIALIST: 10}, {Jobs.FARMER: 400, Jobs.SPECIALIST: 100}),
+         Stockpile({Goods.WHEAT: 438.762626263})),
+    ])
+    def test_produce(self, extractor: Extractor, expected: Stockpile):
+        stockpile = extractor.produce()
+
+        self.assertEqual(len(stockpile), len(expected))
+        for good, size in stockpile.items():
+            self.assertAlmostEqual(size, expected[good])
+    
+    @parameterized.expand([
+        (ExtFactory.full(Goods.WHEAT, {Jobs.FARMER: 990, Jobs.SPECIALIST: 10}), {}),
+
+        (ExtFactory.default(Goods.WHEAT, {Jobs.FARMER: 990, Jobs.SPECIALIST: 10}), {Jobs.FARMER: 990, Jobs.SPECIALIST: 10}),
+
+        (ExtFactory.default(Goods.WHEAT, {Jobs.FARMER: 990, Jobs.SPECIALIST: 10}, {Jobs.FARMER: 495, Jobs.SPECIALIST: 5}),
+         {Jobs.FARMER: 495, Jobs.SPECIALIST: 5}),
+        
+        (ExtFactory.default(Goods.WHEAT, {Jobs.FARMER: 990, Jobs.SPECIALIST: 10}, {Jobs.FARMER: 990}),
+         {Jobs.SPECIALIST: 10}),
+        
+        (ExtFactory.default(Goods.WHEAT, {Jobs.FARMER: 990, Jobs.SPECIALIST: 10}, {Jobs.FARMER: 1000}), {}),
+
+        (ExtFactory.default(Goods.WHEAT, {Jobs.FARMER: 990, Jobs.SPECIALIST: 10}, {Jobs.SPECIALIST: 500}),
+         {Jobs.FARMER: 500}),
+    ])
+    def test_calc_labor_demand(self, extractor: Extractor, expected: dict[Jobs, int | float]):
+        labor_demand = extractor.calc_labor_demand()
+
+        self.assertEqual(len(labor_demand), len(expected))
+        for job, need in labor_demand.items():
+            self.assertAlmostEqual(need, expected[job])
 
     @parameterized.expand([
-        (extractor_factory(workforce_factory({Jobs.FARMER: 90, Jobs.SPECIALIST: 10}, Stockpile(),
-                                             [PopFactory.job(Jobs.FARMER, 45), PopFactory.job(Jobs.SPECIALIST, 5)]),
-                           Goods.WHEAT, Stockpile()),
-         PopFactory.job(Jobs.FARMER, 10),
-         {Jobs.FARMER: PopFactory.job(Jobs.FARMER, 55), Jobs.SPECIALIST: PopFactory.job(Jobs.SPECIALIST, 5)},
-         PopFactory.job(Jobs.FARMER)),
+        # --- NEEDS ---
+        # LOWER  - 1.0 WHEAT
+        # MIDDLE - 2.0 WHEAT, 1.0 IRON
 
-        (extractor_factory(workforce_factory({Jobs.FARMER: 90, Jobs.SPECIALIST: 10}, Stockpile(),
-                                             [PopFactory.job(Jobs.FARMER, 45), PopFactory.job(Jobs.SPECIALIST, 5)]),
-                           Goods.WHEAT, Stockpile()),
-         PopFactory.job(Jobs.SPECIALIST, 1),
-         {Jobs.FARMER: PopFactory.job(Jobs.FARMER, 45), Jobs.SPECIALIST: PopFactory.job(Jobs.SPECIALIST, 6)},
-         PopFactory.job(Jobs.SPECIALIST)),
-        
-        (extractor_factory(workforce_factory({Jobs.FARMER: 90, Jobs.SPECIALIST: 10}, Stockpile(),
-                                             [PopFactory.job(Jobs.FARMER, 45), PopFactory.job(Jobs.SPECIALIST, 5)]),
-                           Goods.WHEAT, Stockpile()),
-         PopFactory.stratum(Strata.LOWER, 10),
-         {Jobs.FARMER: PopFactory.job(Jobs.FARMER, 55), Jobs.SPECIALIST: PopFactory.job(Jobs.SPECIALIST, 5)},
-         PopFactory.stratum(Strata.LOWER)),
-        
-        (extractor_factory(workforce_factory({Jobs.FARMER: 90, Jobs.SPECIALIST: 10}, Stockpile(),
-                                             [PopFactory.job(Jobs.FARMER, 45), PopFactory.job(Jobs.SPECIALIST, 5)]),
-                           Goods.WHEAT, Stockpile()),
-         PopFactory.stratum(Strata.MIDDLE, 1),
-         {Jobs.FARMER: PopFactory.job(Jobs.FARMER, 45), Jobs.SPECIALIST: PopFactory.job(Jobs.SPECIALIST, 6)},
-         PopFactory.stratum(Strata.MIDDLE)),
+        (ExtFactory.default(Goods.WHEAT, {Jobs.FARMER: 990, Jobs.SPECIALIST: 10}), Stockpile()),
 
-        (extractor_factory(workforce_factory({Jobs.FARMER: 90, Jobs.SPECIALIST: 10}, Stockpile(),
-                                             [PopFactory.job(Jobs.FARMER, 45), PopFactory.job(Jobs.SPECIALIST, 5)]),
-                           Goods.WHEAT, Stockpile()),
-         PopFactory.job(Jobs.MINER, 10),
-         ValueError, None),
+        # wheat: 990 + 20 = 1010. iron: 10
+        (ExtFactory.full(Goods.WHEAT, {Jobs.FARMER: 990, Jobs.SPECIALIST: 10}), Stockpile({Goods.WHEAT: 1010, Goods.IRON: 10})),
+
+        # wheat: 495 + 10 = 505. iron: 5
+        (ExtFactory.default(Goods.WHEAT, {Jobs.FARMER: 990, Jobs.SPECIALIST: 10}, {Jobs.FARMER: 495, Jobs.SPECIALIST: 5}),
+         Stockpile({Goods.WHEAT: 505, Goods.IRON: 5})),
+
+        # wheat: 990
+        (ExtFactory.default(Goods.WHEAT, {Jobs.FARMER: 990, Jobs.SPECIALIST: 10}, {Jobs.FARMER: 990}),
+         Stockpile({Goods.WHEAT: 990})),
         
-        (extractor_factory(workforce_factory({Jobs.FARMER: 90, Jobs.SPECIALIST: 10}, Stockpile(),
-                                             [PopFactory.job(Jobs.FARMER, 45), PopFactory.job(Jobs.SPECIALIST, 5)]),
-                           Goods.WHEAT, Stockpile()),
-         PopFactory.job(Jobs.FARMER, 50),
-         {Jobs.FARMER: PopFactory.job(Jobs.FARMER, 90), Jobs.SPECIALIST: PopFactory.job(Jobs.SPECIALIST, 5)},
-         PopFactory.job(Jobs.FARMER, 5)),
-        
-        (extractor_factory(workforce_factory({Jobs.FARMER: 50, Jobs.MINER: 50}, Stockpile(),
-                                             [PopFactory.job(Jobs.FARMER, 25), PopFactory.job(Jobs.MINER, 25)]),
-                           Goods.WHEAT, Stockpile()),
-         PopFactory.stratum(Strata.LOWER, 100),
-         {Jobs.FARMER: PopFactory.job(Jobs.FARMER, 50), Jobs.MINER: PopFactory.job(Jobs.MINER, 50)},
-         PopFactory.stratum(Strata.LOWER, 50)),
+        # wheat: 20. iron: 10
+        (ExtFactory.default(Goods.WHEAT, {Jobs.FARMER: 990, Jobs.SPECIALIST: 10}, {Jobs.SPECIALIST: 10}),
+         Stockpile({Goods.WHEAT: 20, Goods.IRON: 10})),
+
     ])
-    def test_employ(self, extractor: Extractor, 
-                    to_employ: Pop, 
-                    expected_workforce: type[Exception] | dict[Jobs, Pop], 
-                    expected_returned: Pop):
-        
-        if isinstance(expected_workforce, type) and issubclass(expected_workforce, Exception):
-            with self.assertRaises(expected_workforce):
-                extractor.employ(to_employ)
-        
-        else:
-            returned = extractor.employ(to_employ)
+    def test_goods_demand(self, extractor: Extractor, expected: Stockpile):
+        goods_demand = extractor.calc_goods_demand()
 
-            self.assertEqual(returned.job, expected_returned.job)
-            self.assertAlmostEqual(returned.size, expected_returned.size)
+        self.assertEqual(len(goods_demand), len(expected))
+        for good, amount in goods_demand.items():
+            self.assertAlmostEqual(amount, expected[good])
 
-            self.assertEqual(len(extractor.workforce.pops), len(expected_workforce))
-            for (real_job, real_pop), (expected_job, expected_pop) in zip(extractor.workforce.pops.items(), expected_workforce.items()):
-                self.assertEqual(real_job, expected_job)
-                self.assertEqual(real_pop.job, expected_pop.job)
-                self.assertAlmostEqual(real_pop.size, expected_pop.size)
-            
+    @parameterized.expand([
+        (ExtFactory.default(Goods.WHEAT, {Jobs.FARMER: 990, Jobs.SPECIALIST: 10}), PopFactory.job(Jobs.FARMER, 100), True),
+        (ExtFactory.default(Goods.WHEAT, {Jobs.FARMER: 990, Jobs.SPECIALIST: 10}), PopFactory.job(Jobs.MINER, 100), False),
+        (ExtFactory.default(Goods.WHEAT, {Jobs.FARMER: 990, Jobs.SPECIALIST: 10}), PopFactory.job(Jobs.SPECIALIST, 100), True),
+        (ExtFactory.default(Goods.WHEAT, {Jobs.FARMER: 990, Jobs.SPECIALIST: 10}), PopFactory.stratum(Strata.LOWER, 100), True),
+        (ExtFactory.default(Goods.WHEAT, {Jobs.FARMER: 990, Jobs.SPECIALIST: 10}), PopFactory.stratum(Strata.MIDDLE, 100), True),
+        (ExtFactory.default(Goods.WHEAT, {Jobs.FARMER: 990, Jobs.SPECIALIST: 10}), PopFactory.stratum(Strata.UPPER, 100), False),
+
+        (ExtFactory.full(Goods.WHEAT, {Jobs.FARMER: 990, Jobs.SPECIALIST: 10}), PopFactory.job(Jobs.FARMER, 100), False),
+    ])
+    def test_can_employ(self, extractor: Extractor, pop: Pop, expected: bool):
+        self.assertEqual(extractor.can_employ(pop), expected)
+
+    @parameterized.expand([
+        (ExtFactory.default(Goods.WHEAT, {Jobs.FARMER: 990, Jobs.SPECIALIST: 10}), PopFactory.job(Jobs.FARMER, 100),
+         ExtFactory.default(Goods.WHEAT, {Jobs.FARMER: 990, Jobs.SPECIALIST: 10}, {Jobs.FARMER: 100}), PopFactory.job(Jobs.FARMER)),
+        
+        (ExtFactory.default(Goods.WHEAT, {Jobs.FARMER: 990, Jobs.SPECIALIST: 10}), PopFactory.job(Jobs.SPECIALIST, 100),
+        ExtFactory.default(Goods.WHEAT, {Jobs.FARMER: 990, Jobs.SPECIALIST: 10}, {Jobs.SPECIALIST: 10}), PopFactory.job(Jobs.SPECIALIST, 90)),
+        
+        (ExtFactory.default(Goods.WHEAT, {Jobs.FARMER: 990, Jobs.SPECIALIST: 10}), PopFactory.job(Jobs.FARMER, 1000),
+         ExtFactory.default(Goods.WHEAT, {Jobs.FARMER: 990, Jobs.SPECIALIST: 10}, {Jobs.FARMER: 990}), PopFactory.job(Jobs.FARMER, 10)),
+        
+        (ExtFactory.default(Goods.WHEAT, {Jobs.FARMER: 990, Jobs.SPECIALIST: 10}), PopFactory.stratum(Strata.LOWER, 100),
+         ExtFactory.default(Goods.WHEAT, {Jobs.FARMER: 990, Jobs.SPECIALIST: 10}, {Jobs.FARMER: 100}), PopFactory.stratum(Strata.LOWER)),
+        
+        (ExtFactory.default(Goods.WHEAT, {Jobs.FARMER: 990, Jobs.SPECIALIST: 10}), PopFactory.stratum(Strata.MIDDLE, 100),
+         ExtFactory.default(Goods.WHEAT, {Jobs.FARMER: 990, Jobs.SPECIALIST: 10}, {Jobs.SPECIALIST: 10}),
+         PopFactory.stratum(Strata.MIDDLE, 90)),
+    ])      
+    def test_employ(self, extractor: Extractor, pop: Pop, expected_extractor: Extractor, expected_pop: Pop):
+        extractor.employ(pop)
+
+        self.assertAlmostEqual(pop.size, expected_pop.size)
+        self.assertEqual(pop.stratum, expected_pop.stratum)
+        self.assertEqual(pop.job, expected_pop.job)
+
+        self.assertEqual(len(extractor.workforce), len(expected_extractor.workforce))
+        for job, pop in extractor.workforce.items():
+            self.assertAlmostEqual(pop.size, expected_extractor.workforce[job].size)
