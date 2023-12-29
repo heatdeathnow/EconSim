@@ -1,16 +1,17 @@
-1. Changed the `workforce` attribute of the `Extractor` class to take in `Community` objects.
-2. Added the `needed_workers` attribute to the `Extractor` class which is a `dict[Jobs, int | float]`.
-3. Added the `capacity` cached property to the `Extractor` class.
-4. Changed the efficiency property to the `calc_efficiency` method.
-5. Changed how the `calc_efficiency` method works, now sizes over that which is needed won't be considered.
-6. Moved `labor_demand` from the old Workforce class to the `Extractor` class and renamed it to `calc_labor_demand`
-7. Refactored `calc_labor_demand` making it more readable.
-8. Created the `__fix_dict` private static method in the `Extractor` class for removing zeroes from dictionaries.
-9. Moved the `goods_demand` method to the `Extractor` class and renamed it `calc_goods_demand`.
-10. The `employ` method now expected that the passed pop is either of a demanded job or `Jobs.NONE`. It no longer returns the remains of the employed pop, it just modifies it in place.
-11. Created the `can_employ` method to check if the `Extractor` object can employ a `Pop` object.
-12. Created the `Extfactory` class with validation methods and two factory methods: `default` and `full`.
-13. Added the `lru_cache` decorator to the `calc_labor_demand` method, because it seemed expensive and often used.
-14. Added testing to the refactored `prod` module.
-15. Refactored the simulation itself.
-16. Refactored the visualization module.
+1. Added the cached_property `efficient_proportion` to the `Extractor` class.
+2. Reordered the parameters in `Extractor`'s `__init__` method.
+3. Added `size` property to the `Community` class.
+4. Removed `calc_total_workers` method from the `Extractor` class.
+5. Changed the `calc_efficiency` method of the `Extractor` class back to a proportion-based approach.
+6. Removed the `calc_goods_demand` method from the `Extractor` class.
+7. Refactored the `calc_labor_demand` method in the `Extractor` class to return a `Community` object.
+8. Removed the `__fix_dict` private method from the `Extractor` class.
+9. Added numerical comparison special methods to the `Pop` class.
+10. Added `float` casts to the NumPy average function calls in the `Pop` class.
+11. Changed the `employ` method to no longer employ pops whose job is Jobs.NONE to the first job on the dictionary. Now it gives it to the one with the most demand.
+12. Changed the `can_employ` method to take into account if pops whose job is Jobs.NONE can be employed based if there are jobs of their stratum in the labor demand.
+13. Removed the `__employable_strata` private property.
+14. Testing for the comparison operators in the `Pop` class.
+15. Added `ZeroDivisionError` boilerplate to the other operator overwrites in the `Pop` class in order to fix a crash.
+16. Testing for the changes in the `Extractor` class.
+17. Changed the `record_production` usage to actually record the production instead of the stockpile. Added the `record_stockpile` method in its old place.

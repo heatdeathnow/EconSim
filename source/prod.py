@@ -11,7 +11,7 @@ class Extractor:
 
     THROUGHPUT = 1.25  # This is a placeholder value while the feature does not yet exist. This will be embedded to the `Good` class.
 
-    def __init__(self, product: Goods, workforce: Community, needed_workers: dict[Jobs, int | float]) -> None:
+    def __init__(self, product: Goods, needed_workers: dict[Jobs, int | float], workforce: Community) -> None:
         self.product = product
         self.workforce = workforce
         self.needed_workers = needed_workers
@@ -19,120 +19,100 @@ class Extractor:
     def __repr__(self) -> str:
         pops = self.workforce.values()
         pops = list(map(str, pops))
-        return f"<{self.product} Extractor obj.: {', '.join(pops)} >"
-
-    @staticmethod
-    def __fix_dict[T](to_fix: dict[T, int | float]) -> None:
-
-        for key, val in to_fix.copy().items():
-            if isclose(val, 0):
-                del to_fix[key]
-
-    @cached_property
-    def __employable_strata(self) -> set[Strata]:
-        return {job.stratum for job in self.needed_workers}
+        return f"<{self.product.name} Extractor obj.: {', '.join(pops)} >"
 
     @cached_property
     def capacity(self) -> float:
         return sum(self.needed_workers.values())
 
-    def calc_total_workers(self) -> float:
-        return sum(pop.size for pop in self.workforce.values())
-    
+    @cached_property
+    def efficient_shares(self) -> dict[Jobs, float]:
+        return {job: amount / self.capacity for job, amount in self.needed_workers.items()}
+
     def calc_efficiency(self) -> float:
         """
-        Efficiency is the measurement of how well the workforce actually fits to the needed jobs. This values should always
-        range between 0.0 and 1.0. The former representing inability to produce and the latter representing working in perfect conditions.
-        
-        Let's say an `Extractor` object needs 100 farmers. If it has 100 farmers, then it will have 1.0 efficiency. 
-        If it has 50 farmers then it will have 0.5 efficiency. If it has 0 farmers, then it will have 0.0 efficiency.
+        This method calculates the efficiency of production based on how well the proportion of the workers in the `Extractor` 
+        object conform to the efficienct_share.
 
-        Let's say an `Extractor` object needs 100 farmers and 100 miners - it would therefore have a capacity for 200 workers.
-        If it has 150 farmers and 50 miners, the efficiency calculation would go as follows. 1.0 for the farmers plus 0.5 for the miners
-        divided by the amount of different jobs, this case 2, therefore 0.75 efficiency.
+        Because of the nature of the algorithm used to calculate this, efficiency will always reach 0 when there are 0 workers
+        or when there are double the workers needed for that particular job.
         """
 
-        efficiency = 0.0
+        total_difference = 0.0
 
-        for job, needed in self.needed_workers.items():
+        for job, efficient_share in self.efficient_shares.items():
 
-            # Due to the nature of the `Community` class, this will never cause a KeyError.
-            efficiency += min(1, self.workforce[job].size / needed)
-        
-        # ZeroDivisionError should never occour since creating `Extractor` objects 
-        # with an empty `needed_workers` attribute itself raises an error.
-        efficiency /= len(self.needed_workers)
+            share = self.workforce.get_share_of(job)
+
+            difference = abs(efficient_share - share)
+            weighted_difference = min(1, difference / efficient_share)
+
+            total_difference += weighted_difference            
+
+        mean_difference = total_difference / len(self.efficient_shares)
+        efficiency = 1.0 - mean_difference
 
         return efficiency
 
     def produce(self) -> Stockpile:
-        return Stockpile({self.product: Extractor.THROUGHPUT * self.calc_total_workers() * self.calc_efficiency()})
+        return Stockpile({self.product: Extractor.THROUGHPUT * self.workforce.size * self.calc_efficiency()})
 
     @lru_cache
-    def calc_labor_demand(self) -> dict[Jobs, int | float]:
+    def calc_labor_demand(self) -> Community:
         """ Returns a `dict[Jobs, int | float]` representing how many workers from a specific job are needed to fill up to capacity. """
 
-        available_space = self.capacity - self.calc_total_workers()
+        available_space = self.capacity - self.workforce.size
 
-        if available_space <= 0: return {}
+        if available_space <= 0: return Community()
 
-        labor_demand = {job: 0.0 for job in self.needed_workers}
+        labor_demand = Community()
 
-        for job, needed in self.needed_workers.items():
-            missing = max(0, needed - self.workforce[job].size)
-            labor_demand[job] = missing
+        for job, needed_pop in self.needed_workers.items():
+            missing = max(0, needed_pop - self.workforce[job].size)
+            labor_demand += PopFactory.job(job, missing)
         
-        self.__fix_dict(labor_demand)
-        total_needed = sum(labor_demand.values())
+        total_needed = labor_demand.size
 
         if total_needed < available_space:
             return labor_demand
-        
-        weights = {job: needed / total_needed for job, needed in labor_demand.items()}
-        labor_demand = {job: weight * available_space for job, weight in weights.items()}
 
-        self.__fix_dict(labor_demand)
+        weights = {job: pop.size / total_needed for job, pop in labor_demand.items()}  # job will never be `tuple[Strata, Jobs.NONE]``
+        labor_demand = ComFactory.job({job: weight * available_space for job, weight in weights.items()})  # type: ignore
+
         return labor_demand
-
-    def calc_goods_demand(self) -> Stockpile:
-        """ Calculate a `Stockpile` object representing how many goods the pops inside this `Extractor` object need. """
-    
-        goods_demand = Stockpile()
-
-        for pop in self.workforce.values():
-            goods_demand += pop.calc_consumption()
-
-        return goods_demand
     
     def can_employ(self, __value: Pop) -> bool:
         """ This method does not care about amounts, for excess amounts will just be left in the original `Pop` object. """
 
-        if __value.job in self.calc_labor_demand():
+        labor_demand = self.calc_labor_demand()
+
+        if __value.job in labor_demand:
             return True
         
-        if __value.job == Jobs.NONE and __value.stratum in self.__employable_strata:
+        if __value.job == Jobs.NONE and len(labor_demand[__value.stratum]) > 0:
             return True
         
         return False
 
     def employ(self, pop: Pop) -> None:
-        """ Employs a pop assuming its job is either demanded or `Jobs.NONE`. """
+        """ 
+        Employs a pop assuming its job is either demanded or `Jobs.NONE`. If the job is `Jobs.NONE`, it is assumed 
+        that the pop's stratum has jobs that are demanded by this `Extractor`.
+
+        This modifies the passed `pop` argument in place. It removes the workers from it that were employed by this `Extractor`.
+        """
 
         labor_demand = self.calc_labor_demand()
 
         if pop.job == Jobs.NONE:
-            for job in pop.stratum.jobs:
-                if job in labor_demand:  # TODO: a better way of choosing a job in this case. Something with priorities.
-                    employed = PopFactory.job(job, min(pop.size, labor_demand[job]), pop.welfare)
-                    self.workforce += employed
-                    pop -= employed
-
+            job = max(labor_demand[pop.stratum].values()).job
+            
         else:
-            # If this method is used as intended (after checking the `can_employ` method), 
-            # there will never be a  KeyError in accessing `labor_demand`.
-            employed = PopFactory.job(pop.job, min(pop.size, labor_demand[pop.job]), pop.welfare)
-            self.workforce += employed
-            pop -= employed
+            job = pop.job
+
+        employed = PopFactory.job(job, min(pop, labor_demand[job]).size, pop.welfare)
+        self.workforce += employed
+        pop -= employed
 
 class ExtFactory:
 
@@ -146,6 +126,9 @@ class ExtFactory:
         if not isinstance(needed_workers, dict):
             raise TypeError(f'`needed_workers` argument must be an instance of a dictionary, not {type(needed_workers)}.')
         
+        if len(needed_workers) < 1:
+            raise ValueError(f'`needed_workers` argument cannot be an empty dictionary.')
+
         for job, amount in needed_workers.items():
             if job not in Jobs:
                 raise TypeError(f'All keys of `needed_workers` argument must be members of `Jobs` not {job}.')
@@ -203,13 +186,13 @@ class ExtFactory:
         cls.__validate_workforce(needed_workers, workforce)
 
         if isinstance(workforce, Community):
-            return Extractor(product, workforce, needed_workers)
+            return Extractor(product, needed_workers, workforce)
         
         elif isinstance(workforce, dict):
-            return Extractor(product, ComFactory.job(workforce), needed_workers)
+            return Extractor(product, needed_workers, ComFactory.job(workforce))
         
         else:
-            return Extractor(product, ComFactory.job(), needed_workers)
+            return Extractor(product, needed_workers, ComFactory.job())
     
     @classmethod
     def full(cls,
@@ -219,5 +202,5 @@ class ExtFactory:
         cls.__validate_product(product)
         cls.__validate_needed_workers(needed_workers)
 
-        return Extractor(product, ComFactory.job(needed_workers), needed_workers)
+        return Extractor(product, needed_workers, ComFactory.job(needed_workers))
     

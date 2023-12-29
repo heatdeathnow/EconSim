@@ -1,8 +1,6 @@
 ## In order of priority:
 
-- Have it so different needed jobs in an Extractor add up to different amounts of efficiency in the calculation. So that if it needs 50 of A and 50 of B, having 50 of A and 0 of B could amount to 75% or 25% instead of 50%.
-
-- Add a way to determine where the pop should go if it has NONE as a job, instead of just giving it to the first job that shows up.
+- Investigate why the welfare of the SPECIALISTs in the simulation won't drop below 0.2 even though they are dying off.
 
 - Give the `Good` class a `throughput`/`base_production` attribute or a way of having different goods have different production _ceteris paribus_.
 

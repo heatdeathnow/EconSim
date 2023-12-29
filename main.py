@@ -20,26 +20,14 @@ def main():
 
     random = [wheat_farm, iron_mine]
 
-    def print_state():
-        print('----- Extractors -----')
-        print(wheat_farm)
-        print(iron_mine)
-        print()
-        print('----- Goods demand -----')
-        print(wheat_farm.calc_goods_demand() + iron_mine.calc_goods_demand())
-        print()
-        print('----- Stockpile -----')
-        print(stockpile)
-        print()
-        print('----- Unemployed -----')
-        print(unemployed)
-
-    for _ in range(100):
+    for _ in range(150):
 
         # ---------------------- PRODUCTION ------------------------
-        stockpile += wheat_farm.produce()
-        stockpile += iron_mine.produce()
-        data.record_goods_produced(stockpile)
+        goods_produced = wheat_farm.produce()
+        goods_produced += iron_mine.produce()
+        data.record_goods_produced(goods_produced)
+        stockpile += goods_produced
+        data.record_stockpile(stockpile)
 
         # --------------------- CONSUMPTION ------------------------ 
         shuffle(random)  # TODO implement an algorithm for choosing what Extractor gets the goods first, or that divides it between them.
@@ -70,6 +58,9 @@ def main():
     manager = DataManager(data)
     manager.save_csv(data_name, True)
     manager.plot_all(data_name)
+
+def test():
+    import tests
 
 if __name__ == '__main__':
     main()

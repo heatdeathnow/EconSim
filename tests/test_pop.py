@@ -1,12 +1,10 @@
-from typing import Literal, Optional, Sequence
-from parameterized import parameterized
-from unittest import TestCase
-from source import goods
-from source.exceptions import NegativeAmountError
-
 from source.pop import ComFactory, Community, Pop, Jobs, Strata, PopFactory
+from source.exceptions import NegativeAmountError
 from source.goods import Goods, Stockpile
-from source.utils import SharingAlg
+from parameterized import parameterized
+from typing import Literal, Optional
+from unittest import TestCase
+
 
 class TestPopFactory(TestCase):
 
@@ -143,6 +141,26 @@ class TestPop(TestCase):
                 self.assertEqual(pop.job, expected.job)
                 self.assertAlmostEqual(pop.size, expected.size)
                 self.assertAlmostEqual(pop.welfare, expected.welfare)
+
+    @parameterized.expand([
+        (PopFactory.job(Jobs.FARMER, 100), PopFactory.job(Jobs.FARMER, 90), True, True, False, False, False),
+        (PopFactory.job(Jobs.FARMER, 100), PopFactory.job(Jobs.MINER, 90), True, True, False, False, False),
+        (PopFactory.job(Jobs.FARMER, 100), PopFactory.stratum(Strata.LOWER, 90), True, True, False, False, False),
+
+        (PopFactory.job(Jobs.FARMER, 100), PopFactory.job(Jobs.FARMER, 100), False, True, False, True, True),
+        (PopFactory.job(Jobs.FARMER, 100), PopFactory.job(Jobs.MINER, 100), False, True, False, True, True),
+        (PopFactory.job(Jobs.FARMER, 100), PopFactory.stratum(Strata.LOWER, 100), False, True, False, True, True),
+
+        (PopFactory.job(Jobs.FARMER, 100), PopFactory.job(Jobs.FARMER, 110), False, False, True, True, False),
+        (PopFactory.job(Jobs.FARMER, 100), PopFactory.job(Jobs.MINER, 110), False, False, True, True, False),
+        (PopFactory.job(Jobs.FARMER, 100), PopFactory.stratum(Strata.LOWER, 110), False, False, True, True, False),
+    ])
+    def test_comparisons(self, pop1: Pop, pop2: Pop, gt: bool, ge: bool, lt: bool, le: bool, eq: bool):
+        self.assertEqual(pop1 > pop2, gt)
+        self.assertEqual(pop1 >= pop2, ge)
+        self.assertEqual(pop1 < pop2, lt)
+        self.assertEqual(pop1 <= pop2, le)
+        self.assertEqual(pop1 == pop2, eq)
 
     @parameterized.expand([
         # LOWER consumes 1 wheat, MIDDLE consumes 2 wheat and 1 iron.
@@ -433,6 +451,67 @@ class TestCommunity(TestCase):
                 self.assertAlmostEqual(val.welfare, self.community[key].welfare)
 
     @parameterized.expand([
+        (ComFactory.job({Jobs.FARMER: 100, Jobs.MINER: 100, Jobs.SPECIALIST: 10}), 210),
+        (ComFactory.job({Jobs.FARMER: 100, Jobs.MINER: 100}), 200),
+        (ComFactory.job({Jobs.FARMER: 100}), 100),
+
+        (ComFactory.stratum({Strata.LOWER: 100, Strata.MIDDLE: 100, Strata.UPPER: 10}), 210),
+        (ComFactory.stratum({Strata.LOWER: 100, Strata.MIDDLE: 100}), 200),
+        (ComFactory.stratum({Strata.LOWER: 100}), 100),
+
+        (ComFactory.job({Jobs.FARMER: 100}) + ComFactory.stratum({Strata.LOWER: 100}), 200)
+    ])
+    def test_size(self, community: Community, expected_size: int | float):
+        self.assertAlmostEqual(community.size, expected_size)
+    
+    @parameterized.expand([
+        (ComFactory.job({Jobs.FARMER: 100, Jobs.MINER: 100, Jobs.SPECIALIST: 100}), Jobs.FARMER, 1/3),
+        (ComFactory.job({Jobs.FARMER: 100, Jobs.MINER: 100, Jobs.SPECIALIST: 100}), Jobs.MINER, 1/3),
+        (ComFactory.job({Jobs.FARMER: 100, Jobs.MINER: 100, Jobs.SPECIALIST: 100}), Jobs.SPECIALIST, 1/3),
+        (ComFactory.job({Jobs.FARMER: 100, Jobs.MINER: 100, Jobs.SPECIALIST: 100}), Strata.LOWER, 2/3),
+        (ComFactory.job({Jobs.FARMER: 100, Jobs.MINER: 100, Jobs.SPECIALIST: 100}), Strata.MIDDLE, 1/3),
+        (ComFactory.job({Jobs.FARMER: 100, Jobs.MINER: 100, Jobs.SPECIALIST: 100}), (Strata.LOWER, Jobs.NONE), 0),
+
+        (ComFactory.stratum({Strata.LOWER: 100, Strata.MIDDLE: 50, Strata.UPPER: 25}), Strata.LOWER, 100/175),
+        (ComFactory.stratum({Strata.LOWER: 100, Strata.MIDDLE: 50, Strata.UPPER: 25}), Strata.MIDDLE, 50/175),
+        (ComFactory.stratum({Strata.LOWER: 100, Strata.MIDDLE: 50, Strata.UPPER: 25}), Strata.UPPER, 25/175),
+        (ComFactory.stratum({Strata.LOWER: 100, Strata.MIDDLE: 50, Strata.UPPER: 25}), Jobs.FARMER, 0),
+        (ComFactory.stratum({Strata.LOWER: 100, Strata.MIDDLE: 50, Strata.UPPER: 25}), (Strata.LOWER, Jobs.NONE), 100/175),
+        (ComFactory.stratum({Strata.LOWER: 100, Strata.MIDDLE: 50, Strata.UPPER: 25}), (Strata.MIDDLE, Jobs.NONE), 50/175),
+        (ComFactory.stratum({Strata.LOWER: 100, Strata.MIDDLE: 50, Strata.UPPER: 25}), (Strata.UPPER, Jobs.NONE), 25/175),
+    ])
+    def test_get_share_of(self, community: Community, job: Jobs | tuple[Strata, Literal[Jobs.NONE]] | Strata, expected_share: float):
+        self.assertAlmostEqual(community.get_share_of(job), expected_share)
+    
+    @parameterized.expand([
+        (ComFactory.job({Jobs.FARMER: 100, Jobs.MINER: 90, Jobs.SPECIALIST: 80}), PopFactory.job(Jobs.SPECIALIST, 80)),
+        (ComFactory.job({Jobs.FARMER: 79, Jobs.MINER: 90, Jobs.SPECIALIST: 80}), PopFactory.job(Jobs.FARMER, 79)),
+        (ComFactory.job({Jobs.FARMER: 100, Jobs.MINER: 79, Jobs.SPECIALIST: 80}), PopFactory.job(Jobs.MINER, 79)),
+        (ComFactory.job({Jobs.FARMER: 100, Jobs.MINER: 80, Jobs.SPECIALIST: 80}), PopFactory.job(Jobs.MINER, 80)),
+    ])
+    def test_min(self, community: Community, expected_pop: Pop):
+        pop = min(community.values())
+
+        self.assertEqual(pop.job, expected_pop.job)
+        self.assertEqual(pop.stratum, expected_pop.stratum)
+        self.assertAlmostEqual(pop.size, expected_pop.size)
+        self.assertAlmostEqual(pop.welfare, expected_pop.welfare)
+
+    @parameterized.expand([
+        (ComFactory.job({Jobs.FARMER: 100, Jobs.MINER: 90, Jobs.SPECIALIST: 80}), PopFactory.job(Jobs.FARMER, 100)),
+        (ComFactory.job({Jobs.FARMER: 100, Jobs.MINER: 90, Jobs.SPECIALIST: 101}), PopFactory.job(Jobs.SPECIALIST, 101)),
+        (ComFactory.job({Jobs.FARMER: 100, Jobs.MINER: 101, Jobs.SPECIALIST: 80}), PopFactory.job(Jobs.MINER, 101)),
+        (ComFactory.job({Jobs.FARMER: 100, Jobs.MINER: 100, Jobs.SPECIALIST: 80}), PopFactory.job(Jobs.FARMER, 100)),
+    ])
+    def test_max(self, community: Community, expected_pop: Pop):
+        pop = max(community.values())
+
+        self.assertEqual(pop.job, expected_pop.job)
+        self.assertEqual(pop.stratum, expected_pop.stratum)
+        self.assertAlmostEqual(pop.size, expected_pop.size)
+        self.assertAlmostEqual(pop.welfare, expected_pop.welfare)
+
+    @parameterized.expand([
         (
             ComFactory.job({Jobs.FARMER: 100}), Stockpile({Goods.WHEAT: 100})
         ),
@@ -532,3 +611,4 @@ class TestCommunity(TestCase):
             self.assertEqual(promoted[job].job, pop.job)
             self.assertAlmostEqual(promoted[job].size, pop.size)
             self.assertAlmostEqual(promoted[job].welfare, pop.welfare)
+    

@@ -31,8 +31,9 @@ class DataCase:
     name: str
     pop_size       = DataFrame(columns = [job.name for job in Jobs])
     pop_welfare    = DataFrame(columns = [job.name for job in Jobs])
+    stockpile      = DataFrame(columns = [good.name for good in Goods])
     goods_produced = DataFrame(columns = [good.name for good in Goods])
-    goods_consumed = DataFrame(columns = [good.name for good in Goods])
+    goods_consumed = DataFrame(columns = [good.name for good in Goods])  # unused
     goods_demanded = DataFrame(columns = [good.name for good in Goods])
 
     def __post_init__(self):
@@ -40,6 +41,7 @@ class DataCase:
 
         self.pop_size_file       = self.data_folder / 'pop_size.csv'
         self.pop_welfare_file    = self.data_folder / 'pop_welfare.csv'
+        self.stockpile_file      = self.data_folder / 'stockpile.csv'
         self.goods_produced_file = self.data_folder / 'goods_produced.csv'
         self.goods_consumed_file = self.data_folder / 'goods_consumed.csv'
         self.goods_demanded_file = self.data_folder / 'goods_demanded.csv'
@@ -47,11 +49,12 @@ class DataCase:
     @property
     def map(self) -> dict[Path, DataFrame]:
         return {
-            self.pop_size_file: self.pop_size,
-            self.pop_welfare_file: self.pop_welfare,
-            self.goods_produced_file: self.goods_produced,
-            self.goods_consumed_file: self.goods_consumed,
-            self.goods_demanded_file: self.goods_demanded,
+            self.pop_size_file       : self.pop_size,
+            self.pop_welfare_file    : self.pop_welfare,
+            self.stockpile_file      : self.stockpile,
+            self.goods_produced_file : self.goods_produced,
+            self.goods_consumed_file : self.goods_consumed,
+            self.goods_demanded_file : self.goods_demanded,
         }
 
     def record_pop_size(self, pops: Community) -> None:
@@ -97,6 +100,9 @@ class DataCase:
         
         return new_df
     
+    def record_stockpile(self, goods: Stockpile):
+        self.stockpile = pd.concat([self.stockpile, self.__stockpile_to_df(goods)], ignore_index=True)
+
     def record_goods_produced(self, goods: Stockpile):
         self.goods_produced = pd.concat([self.goods_produced, self.__stockpile_to_df(goods)], ignore_index=True)
     
@@ -185,6 +191,9 @@ class DataManager:
 
         # Population welfare
         self.plot_graph(datacase.pop_welfare, folder / 'welfare.png', 'Welfare over time', 'Time', 'Welfare')
+
+        # Population welfare
+        self.plot_graph(datacase.stockpile, folder / 'stockpile.png', 'Stockpile', 'Time', 'Amount')
 
         # Goods produced
         self.plot_graph(datacase.goods_produced, folder / 'goods_produced.png', 'Goods produced over time', 'Time', 'Amount')

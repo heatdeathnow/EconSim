@@ -124,39 +124,65 @@ class Pop:
     def __add__(self, __value: Pop) -> Pop:
         self.__scrutinize(__value)
 
-        return PopFactory.job(self.job, self.size + __value.size,
-                              np.average([self.welfare, __value.welfare], weights=[self.size, __value.size]))
+        try:
+            return PopFactory.job(self.job, self.size + __value.size,
+                                float(np.average([self.welfare, __value.welfare], weights=[self.size, __value.size])))
+
+        except ZeroDivisionError:
+            return PopFactory.job(self.job)
 
     def __sub__(self, __value: Pop) -> Pop:
         self.__scrutinize(__value, True)
 
         try:
             return PopFactory.job(self.job, self.size - __value.size,
-                                np.average([self.welfare, __value.welfare], weights=[self.size, -__value.size]))
+                                float(np.average([self.welfare, __value.welfare], weights=[self.size, -__value.size])))
 
         except ZeroDivisionError:
-            return PopFactory.job(self.job, 0)
+            return PopFactory.job(self.job)
 
     def __iadd__(self, __value: Pop) -> Self:
         self.__scrutinize(__value)
 
-        self.welfare = np.average([self.welfare, __value.welfare], weights=[self.size, __value.size])
-        self.size += __value.size
+        try:
+            self.welfare = float(np.average([self.welfare, __value.welfare], weights=[self.size, __value.size]))
+            self.size += __value.size
+        
+        except ZeroDivisionError:
+            self.welfare = Pop.ZERO_SIZE_WELFARE
+            self.size = 0
 
-        return self
+        finally:
+            return self
 
     def __isub__(self, __value: Pop) -> Self:
         self.__scrutinize(__value, True)
 
         try:
-            self.welfare = np.average([self.welfare, __value.welfare], weights=[self.size, -__value.size])
+            self.welfare = float(np.average([self.welfare, __value.welfare], weights=[self.size, -__value.size]))
             self.size -= __value.size
 
         except ZeroDivisionError:
             self.welfare = Pop.ZERO_SIZE_WELFARE
             self.size = 0
 
-        return self
+        finally:
+            return self
+
+    def __eq__(self, __value: Pop) -> bool:
+        return self.size == __value.size
+
+    def __gt__(self, __value: Pop) -> bool:
+        return self.size > __value.size
+
+    def __ge__(self, __value: Pop) -> bool:
+        return self.size >= __value.size
+
+    def __lt__(self, __value: Pop) -> bool:
+        return self.size < __value.size
+
+    def __le__(self, __value: Pop) -> bool:
+        return self.size <= __value.size
 
     def __repr__(self) -> str:
         """The stratum is implicit in each job except for NONE."""
@@ -189,7 +215,7 @@ class Pop:
                 continue
 
         welfare /= len(self.stratum.needs)
-        self.welfare = np.average([self.welfare, welfare], weights=[Pop.OLD_WELFARE_WEIGHT, Pop.NEW_WELFARE_WEIGHT])
+        self.welfare = float(np.average([self.welfare, welfare], weights=[Pop.OLD_WELFARE_WEIGHT, Pop.NEW_WELFARE_WEIGHT]))
 
         if math.isclose(self.welfare, 0):
             self.welfare = 0
@@ -368,7 +394,7 @@ class Community(dict):
     def __getitem__(self, __key: Strata) -> Community:
         """ Returns a community whose stored pops are only of the specified stratum. """
 
-    def __getitem__(self, __key: Jobs | tuple[Strata, Literal[Jobs.NONE]] | Strata ) -> Pop | Community:
+    def __getitem__(self, __key: Jobs | tuple[Strata, Literal[Jobs.NONE]] | Strata) -> Pop | Community:
 
         if __key not in Jobs and __key not in Strata and not isinstance(__key, tuple):
             raise TypeError('Can only consult `Community` pops via `Jobs`, `Strata`, or `tuple[Strata, Jobs.NONE]` as keys.')
@@ -483,6 +509,25 @@ class Community(dict):
         pops = self.values()
         pops = list(map(str, pops))
         return f'<Community obj.: {', '.join(pops)} >'
+
+    @property
+    def size(self) -> int | float:
+        return sum(pop.size for pop in self.values())
+
+    def get_share_of(self, __key: Jobs | tuple[Strata, Literal[Jobs.NONE]] | Strata) -> float:
+        """ 
+        Calculates the share of the population corresponding to the passed __key argument in relation to 
+        the total size of the community.
+
+        If a `Strata` is passed, then it will calculate the size of all the pops 
+        of that stratum in relation to the total size of the community.
+        """
+    
+        try:
+            return self[__key].size / self.size
+        
+        except ZeroDivisionError:
+            return 0
 
     def calc_goods_demand(self) -> Stockpile:
 

@@ -1,27 +1,27 @@
-from parameterized import parameterized
-from typing import Optional
-from unittest import TestCase
-from source.exceptions import NegativeAmountError
-
 from source.pop import ComFactory, Community, Jobs, Pop, Strata, PopFactory
-from source.goods import Goods, Stockpile
+from source.exceptions import NegativeAmountError
 from source.prod import ExtFactory, Extractor
+from source.goods import Goods, Stockpile
+from parameterized import parameterized
+from unittest import TestCase, skip
+from typing import Optional
+
 
 class TestExtractorFactory(TestCase):
 
     @parameterized.expand([
-        (Extractor(Goods.WHEAT, ComFactory.job(), {Jobs.FARMER: 990, Jobs.SPECIALIST: 10}),
+        (Extractor(Goods.WHEAT, {Jobs.FARMER: 990, Jobs.SPECIALIST: 10}, ComFactory.job()),
         Goods.WHEAT, {Jobs.FARMER: 990, Jobs.SPECIALIST: 10}, None),
-        (Extractor(Goods.IRON, ComFactory.job(), {Jobs.FARMER: 990, Jobs.SPECIALIST: 10}),
+        (Extractor(Goods.IRON, {Jobs.FARMER: 990, Jobs.SPECIALIST: 10}, ComFactory.job()),
         Goods.IRON, {Jobs.FARMER: 990, Jobs.SPECIALIST: 10}, None),
-        (Extractor(Goods.WHEAT, ComFactory.job({Jobs.FARMER: 100, Jobs.SPECIALIST: 10}), {Jobs.FARMER: 990, Jobs.SPECIALIST: 10}),
+        (Extractor(Goods.WHEAT, {Jobs.FARMER: 990, Jobs.SPECIALIST: 10}, ComFactory.job({Jobs.FARMER: 100, Jobs.SPECIALIST: 10})),
         Goods.WHEAT, {Jobs.FARMER: 990, Jobs.SPECIALIST: 10}, ComFactory.job({Jobs.FARMER: 100, Jobs.SPECIALIST: 10})),
-        (Extractor(Goods.WHEAT, ComFactory.job({Jobs.FARMER: 999, Jobs.SPECIALIST: 1}), {Jobs.FARMER: 990, Jobs.SPECIALIST: 10}),
+        (Extractor(Goods.WHEAT, {Jobs.FARMER: 990, Jobs.SPECIALIST: 10}, ComFactory.job({Jobs.FARMER: 999, Jobs.SPECIALIST: 1})),
         Goods.WHEAT, {Jobs.FARMER: 990, Jobs.SPECIALIST: 10}, ComFactory.job({Jobs.FARMER: 999, Jobs.SPECIALIST: 1})),
 
-        (Extractor(Goods.WHEAT, ComFactory.job({Jobs.FARMER: 100, Jobs.SPECIALIST: 10}), {Jobs.FARMER: 990, Jobs.SPECIALIST: 10}),
+        (Extractor(Goods.WHEAT, {Jobs.FARMER: 990, Jobs.SPECIALIST: 10}, ComFactory.job({Jobs.FARMER: 100, Jobs.SPECIALIST: 10})),
         Goods.WHEAT, {Jobs.FARMER: 990, Jobs.SPECIALIST: 10}, {Jobs.FARMER: 100, Jobs.SPECIALIST: 10}),
-        (Extractor(Goods.WHEAT, ComFactory.job({Jobs.FARMER: 999, Jobs.SPECIALIST: 1}), {Jobs.FARMER: 990, Jobs.SPECIALIST: 10}),
+        (Extractor(Goods.WHEAT, {Jobs.FARMER: 990, Jobs.SPECIALIST: 10}, ComFactory.job({Jobs.FARMER: 999, Jobs.SPECIALIST: 1})),
         Goods.WHEAT, {Jobs.FARMER: 990, Jobs.SPECIALIST: 10}, {Jobs.FARMER: 999, Jobs.SPECIALIST: 1}),
     
         (ValueError,
@@ -66,9 +66,9 @@ class TestExtractorFactory(TestCase):
                 self.assertEqual(expected.needed_workers[job], size)
 
     @parameterized.expand([
-        (Extractor(Goods.WHEAT, ComFactory.job({Jobs.FARMER: 990, Jobs.SPECIALIST: 10}), {Jobs.FARMER: 990, Jobs.SPECIALIST: 10}),
+        (Extractor(Goods.WHEAT, {Jobs.FARMER: 990, Jobs.SPECIALIST: 10}, ComFactory.job({Jobs.FARMER: 990, Jobs.SPECIALIST: 10})),
         Goods.WHEAT, {Jobs.FARMER: 990, Jobs.SPECIALIST: 10}),
-        (Extractor(Goods.IRON, ComFactory.job({Jobs.FARMER: 990, Jobs.SPECIALIST: 10}), {Jobs.FARMER: 990, Jobs.SPECIALIST: 10}),
+        (Extractor(Goods.IRON, {Jobs.FARMER: 990, Jobs.SPECIALIST: 10}, ComFactory.job({Jobs.FARMER: 990, Jobs.SPECIALIST: 10})),
         Goods.IRON, {Jobs.FARMER: 990, Jobs.SPECIALIST: 10}),
 
         (ValueError,
@@ -110,32 +110,62 @@ class TestExtractor(TestCase):
         self.assertAlmostEqual(extractor.capacity, expected)
 
     @parameterized.expand([
-        (ExtFactory.full(Goods.WHEAT, {Jobs.FARMER: 990, Jobs.SPECIALIST: 10}), 1000),
-
-        (ExtFactory.default(Goods.WHEAT, {Jobs.FARMER: 990, Jobs.SPECIALIST: 10}, {Jobs.FARMER: 500, Jobs.SPECIALIST: 10}), 510),
-
-        (ExtFactory.default(Goods.WHEAT, {Jobs.FARMER: 990, Jobs.SPECIALIST: 10}, {Jobs.FARMER: 490, Jobs.SPECIALIST: 10}), 500),
-
-        (ExtFactory.default(Goods.WHEAT, {Jobs.FARMER: 990, Jobs.SPECIALIST: 10}, {Jobs.FARMER: 490}), 490),
-
-        (ExtFactory.default(Goods.WHEAT, {Jobs.FARMER: 990, Jobs.SPECIALIST: 10}), 0),
+        (ExtFactory.default(Goods.WHEAT, {Jobs.FARMER: 900, Jobs.SPECIALIST: 100}), {Jobs.FARMER: 0.9, Jobs.SPECIALIST: 0.1}),
+        (ExtFactory.full(Goods.WHEAT, {Jobs.FARMER: 900, Jobs.SPECIALIST: 100}), {Jobs.FARMER: 0.9, Jobs.SPECIALIST: 0.1}),
+        (ExtFactory.default(Goods.WHEAT, {Jobs.FARMER: 450, Jobs.MINER: 450, Jobs.SPECIALIST: 100}), 
+         {Jobs.FARMER: 0.45, Jobs.MINER: 0.45, Jobs.SPECIALIST: 0.1}),
     ])
-    def test_calc_total_workers(self, extractor: Extractor, expected: int | float):
-        self.assertAlmostEqual(extractor.calc_total_workers(), expected)
-    
+    def test_efficient_shares(self, extractor: Extractor, expected: dict[Jobs, float]):
+        self.assertEqual(len(extractor.efficient_shares), len(expected))
+        self.assertAlmostEqual(sum(extractor.efficient_shares.values()), 1)
+
+        for job, share in extractor.efficient_shares.items():
+            self.assertTrue(share >= 0)
+            self.assertTrue(share <= 1)
+
+            self.assertAlmostEqual(share, expected[job])
+
     @parameterized.expand([
         (ExtFactory.default(Goods.WHEAT, {Jobs.FARMER: 990, Jobs.SPECIALIST: 10}), 0.0),
 
         (ExtFactory.full(Goods.WHEAT, {Jobs.FARMER: 990, Jobs.SPECIALIST: 10}), 1.0),
 
-        (ExtFactory.default(Goods.WHEAT, {Jobs.FARMER: 990, Jobs.SPECIALIST: 10}, {Jobs.FARMER: 495, Jobs.SPECIALIST: 5}), 0.5),
+        # size: 500
+        # efficient_shares --- farmer: 990/1000 = .99 | specialist: 10/1000 = .01
+        # shares           --- farmer: 495/500  = .99 | specialist: 5 / 500 = .01
+        (ExtFactory.default(Goods.WHEAT, {Jobs.FARMER: 990, Jobs.SPECIALIST: 10}, {Jobs.FARMER: 495, Jobs.SPECIALIST: 5}), 1),
 
-        (ExtFactory.default(Goods.WHEAT, {Jobs.FARMER: 990, Jobs.SPECIALIST: 10}, {Jobs.FARMER: 495}), 0.25),
+        # size: 505
+        # efficient_shares    --- farmer: 990/1000       = .99      | specialist: 10/1000        = .01
+        # shares              --- farmer: 495/505        = .r9801   | specialist: 10 / 505       = .r0198
+        # difference          --- farmer: .99 - .r9801   = .00r9801 | specialist: .r0198 - .01   = .00r9801
+        # weighted difference --- farmer: .00r9801 / .99 = .r0099   | specialist: .00r9801 / .01 = .r9801
+        # efficiency          --- 1 - (.r0099 + .r9801) / 2 = .r5049
+        (ExtFactory.default(Goods.WHEAT, {Jobs.FARMER: 990, Jobs.SPECIALIST: 10}, {Jobs.FARMER: 495, Jobs.SPECIALIST: 10}), 0.50495049),
+
+        # size: 495
+        # efficient_shares    --- farmer: 990/1000   = .99  | specialist: 10/1000   = .01
+        # shares              --- farmer: 495/495    = 1    | specialist: 0 / 495   = 0
+        # difference          --- farmer: 1 - 0.99   = .01  | specialist: .01 - 0   = .01
+        # weighted difference --- farmer: .01 / .99  = .r01 | specialist: .01 / .01 = 1
+        # efficiency          --- 1 - (.r01 + 1) / 2 = .r49
+        (ExtFactory.default(Goods.WHEAT, {Jobs.FARMER: 990, Jobs.SPECIALIST: 10}, {Jobs.FARMER: 495}), 0.49494949),
         
-        # This needs to, and will eventually, be changed
-        (ExtFactory.default(Goods.WHEAT, {Jobs.FARMER: 990, Jobs.SPECIALIST: 10}, {Jobs.SPECIALIST: 10}), 0.5),
+        # size: 10
+        # efficient_shares    --- farmer: 990/1000  = .99 | specialist: 10/1000   = .01
+        # shares              --- farmer: 0  /  10  = 0   | specialist: 10 / 10   = 1
+        # difference          --- farmer: .99 - 0   = .99 | specialist: 1 - .01   = .99
+        # weighted difference --- farmer: .99 / .99 = 1   | specialist: .99 / .01 = 1
+        # efficiency          --- 1 - (1 + 1) / 2   = 0
+        (ExtFactory.default(Goods.WHEAT, {Jobs.FARMER: 990, Jobs.SPECIALIST: 10}, {Jobs.SPECIALIST: 10}), 0),
 
-        (ExtFactory.default(Goods.WHEAT, {Jobs.FARMER: 990, Jobs.SPECIALIST: 10}, {Jobs.SPECIALIST: 5}), 0.25),
+        # size: 5
+        # efficient_shares    --- farmer: 990/1000  = .99 | specialist: 10/1000   = .01
+        # shares              --- farmer: 0  /  5   = 0   | specialist: 5 /   5   = 1
+        # difference          --- farmer: .99 - 0   = .99 | specialist: 1 - .01   = .99
+        # weighted difference --- farmer: .99 / .99 = 1   | specialist: .99 / .01 = 1
+        # efficiency          --- 1 - (1 + 1) / 2   = 0
+        (ExtFactory.default(Goods.WHEAT, {Jobs.FARMER: 990, Jobs.SPECIALIST: 10}, {Jobs.SPECIALIST: 5}), 0),
     ])
     def test_calc_efficiency(self, extractor: Extractor, expected: float):
         self.assertAlmostEqual(extractor.calc_efficiency(), expected)
@@ -146,37 +176,41 @@ class TestExtractor(TestCase):
 
         (ExtFactory.default(Goods.WHEAT, {Jobs.FARMER: 990, Jobs.SPECIALIST: 10}), Stockpile()),
 
+        # THROUGHPUT * size * efficiency
         # 1.25 * 1000 * 1.0 = 1250
         (ExtFactory.full(Goods.WHEAT, {Jobs.FARMER: 990, Jobs.SPECIALIST: 10}), Stockpile({Goods.WHEAT: 1250})),
         (ExtFactory.full(Goods.IRON, {Jobs.MINER: 990, Jobs.SPECIALIST: 10}), Stockpile({Goods.IRON: 1250})),
 
-        # 1.25 * 1000 * 0.5 = 625
+        # 1.25 * 1000 * 0.r49 = 618.r68
         (ExtFactory.default(Goods.WHEAT, {Jobs.FARMER: 990, Jobs.SPECIALIST: 10}, {Jobs.FARMER: 1000}),
+         Stockpile({Goods.WHEAT: 618.68686869})),
+        
+        # 1.25 * 990 * 0.r49 = 612.4r9
+        (ExtFactory.default(Goods.WHEAT, {Jobs.FARMER: 990, Jobs.SPECIALIST: 10}, {Jobs.FARMER: 990}),
+         Stockpile({Goods.WHEAT: 612.49999999})),
+
+        # 1.25 * 10 * 0 = 0
+        (ExtFactory.default(Goods.WHEAT, {Jobs.FARMER: 990, Jobs.SPECIALIST: 10}, {Jobs.SPECIALIST: 10}), Stockpile()),
+        
+        # 1.25 * 495 * 0.r49 = 306.25
+        (ExtFactory.default(Goods.WHEAT, {Jobs.FARMER: 990, Jobs.SPECIALIST: 10}, {Jobs.FARMER: 495}), Stockpile({Goods.WHEAT: 306.25})),
+
+        # 1.25 * 5 * 0 = 0
+        (ExtFactory.default(Goods.WHEAT, {Jobs.FARMER: 990, Jobs.SPECIALIST: 10}, {Jobs.SPECIALIST: 5}), Stockpile()),
+
+        # 1.25 * 500 * 1 = 625
+        (ExtFactory.default(Goods.WHEAT, {Jobs.FARMER: 990, Jobs.SPECIALIST: 10}, {Jobs.FARMER: 495, Jobs.SPECIALIST: 5}),
          Stockpile({Goods.WHEAT: 625})),
         
-        # 1.25 * 990 * 0.5 = 618.75
-        (ExtFactory.default(Goods.WHEAT, {Jobs.FARMER: 990, Jobs.SPECIALIST: 10}, {Jobs.FARMER: 990}),
-         Stockpile({Goods.WHEAT: 618.75})),
-
-        # 1.25 * 10 * 0.5 = 6.25
-        (ExtFactory.default(Goods.WHEAT, {Jobs.FARMER: 990, Jobs.SPECIALIST: 10}, {Jobs.SPECIALIST: 10}),  # WILL BE CHANGED
-         Stockpile({Goods.WHEAT: 6.25})),
-        
-        # 1.25 * 495 * 0.25 = 154.6875
-        (ExtFactory.default(Goods.WHEAT, {Jobs.FARMER: 990, Jobs.SPECIALIST: 10}, {Jobs.FARMER: 495}),
-         Stockpile({Goods.WHEAT: 154.6875})),
-
-        # 1.25 * 5 * 0.25 = 1.5625
-        (ExtFactory.default(Goods.WHEAT, {Jobs.FARMER: 990, Jobs.SPECIALIST: 10}, {Jobs.SPECIALIST: 5}),  # WILL BE CHANGED
-         Stockpile({Goods.WHEAT: 1.5625})),
-
-        # 1.25 * 500 * 0.5 = 312.5
-        (ExtFactory.default(Goods.WHEAT, {Jobs.FARMER: 990, Jobs.SPECIALIST: 10}, {Jobs.FARMER: 495, Jobs.SPECIALIST: 5}),
-         Stockpile({Goods.WHEAT: 312.5})),
-        
-        # 1.25 * 500 * 0.r7020 = 438.7r62
+        # size: 500
+        # efficient_shares    --- farmer: 990/1000   = .99  | specialist: 10/1000   = .01
+        # shares              --- farmer: 400/500    = .8   | specialist: 100/500   = .2
+        # difference          --- farmer: .99 - .8   = .19  | specialist: .2 - .01  = .19
+        # weighted difference --- farmer: .19 / .99  = .r19 | specialist: .19 / .01 = 1
+        # efficiency          --- 1 - (.r19 + 1) / 2 = 0.r40
+        # production          --- 1.25 * 500 * 0.r40 = 252.r52
         (ExtFactory.default(Goods.WHEAT, {Jobs.FARMER: 990, Jobs.SPECIALIST: 10}, {Jobs.FARMER: 400, Jobs.SPECIALIST: 100}),
-         Stockpile({Goods.WHEAT: 438.762626263})),
+         Stockpile({Goods.WHEAT: 252.52525253})),
     ])
     def test_produce(self, extractor: Extractor, expected: Stockpile):
         stockpile = extractor.produce()
@@ -206,37 +240,7 @@ class TestExtractor(TestCase):
 
         self.assertEqual(len(labor_demand), len(expected))
         for job, need in labor_demand.items():
-            self.assertAlmostEqual(need, expected[job])
-
-    @parameterized.expand([
-        # --- NEEDS ---
-        # LOWER  - 1.0 WHEAT
-        # MIDDLE - 2.0 WHEAT, 1.0 IRON
-
-        (ExtFactory.default(Goods.WHEAT, {Jobs.FARMER: 990, Jobs.SPECIALIST: 10}), Stockpile()),
-
-        # wheat: 990 + 20 = 1010. iron: 10
-        (ExtFactory.full(Goods.WHEAT, {Jobs.FARMER: 990, Jobs.SPECIALIST: 10}), Stockpile({Goods.WHEAT: 1010, Goods.IRON: 10})),
-
-        # wheat: 495 + 10 = 505. iron: 5
-        (ExtFactory.default(Goods.WHEAT, {Jobs.FARMER: 990, Jobs.SPECIALIST: 10}, {Jobs.FARMER: 495, Jobs.SPECIALIST: 5}),
-         Stockpile({Goods.WHEAT: 505, Goods.IRON: 5})),
-
-        # wheat: 990
-        (ExtFactory.default(Goods.WHEAT, {Jobs.FARMER: 990, Jobs.SPECIALIST: 10}, {Jobs.FARMER: 990}),
-         Stockpile({Goods.WHEAT: 990})),
-        
-        # wheat: 20. iron: 10
-        (ExtFactory.default(Goods.WHEAT, {Jobs.FARMER: 990, Jobs.SPECIALIST: 10}, {Jobs.SPECIALIST: 10}),
-         Stockpile({Goods.WHEAT: 20, Goods.IRON: 10})),
-
-    ])
-    def test_goods_demand(self, extractor: Extractor, expected: Stockpile):
-        goods_demand = extractor.calc_goods_demand()
-
-        self.assertEqual(len(goods_demand), len(expected))
-        for good, amount in goods_demand.items():
-            self.assertAlmostEqual(amount, expected[good])
+            self.assertAlmostEqual(need.size, expected[job])  # type: ignore
 
     @parameterized.expand([
         (ExtFactory.default(Goods.WHEAT, {Jobs.FARMER: 990, Jobs.SPECIALIST: 10}), PopFactory.job(Jobs.FARMER, 100), True),
