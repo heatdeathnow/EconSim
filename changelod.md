@@ -1,17 +1,20 @@
-1. Added the cached_property `efficient_proportion` to the `Extractor` class.
-2. Reordered the parameters in `Extractor`'s `__init__` method.
-3. Added `size` property to the `Community` class.
-4. Removed `calc_total_workers` method from the `Extractor` class.
-5. Changed the `calc_efficiency` method of the `Extractor` class back to a proportion-based approach.
-6. Removed the `calc_goods_demand` method from the `Extractor` class.
-7. Refactored the `calc_labor_demand` method in the `Extractor` class to return a `Community` object.
-8. Removed the `__fix_dict` private method from the `Extractor` class.
-9. Added numerical comparison special methods to the `Pop` class.
-10. Added `float` casts to the NumPy average function calls in the `Pop` class.
-11. Changed the `employ` method to no longer employ pops whose job is Jobs.NONE to the first job on the dictionary. Now it gives it to the one with the most demand.
-12. Changed the `can_employ` method to take into account if pops whose job is Jobs.NONE can be employed based if there are jobs of their stratum in the labor demand.
-13. Removed the `__employable_strata` private property.
-14. Testing for the comparison operators in the `Pop` class.
-15. Added `ZeroDivisionError` boilerplate to the other operator overwrites in the `Pop` class in order to fix a crash.
-16. Testing for the changes in the `Extractor` class.
-17. Changed the `record_production` usage to actually record the production instead of the stockpile. Added the `record_stockpile` method in its old place.
+1. Population sizes now are set to zero to sizes close to one one-thousandth.
+2. Added `is_balanced` and `balance` methods to the `Extractor` class.
+3. Added `base_production` attribute to the `Good` class.
+4. Added `fire_excess` to the `Extractor` class.
+5. Added `unemploy_all` method to the `Community` class that sets all its pops' jobs to NONE.
+6. Changed how unemployment and employment work. Now unemployed pops will always have Jobs.NONE and pops can only employ pops with Jobs.NONE.
+7. Removed the `lru_cached` decorator from the `calc_labor_demand` method.
+8. Changed the `promote` property in the `Pop` class to the `can_promote` method.
+9. Changed the `job` and `stratum` static methods in the `PopFactory` class to class methods.
+10. Changed the static methods in the `ComFactory` class to class methods.
+11. Changed all factory methods in the `pop` module such that they will only generate sizes and welfares as low as 0.001
+12. Added `__mul__` method to `Stockpile` class.
+13. Changed everything in the `goods` module to conform to the minimum floating point of 0.001
+14. Refactored the `Impartial` sharing algorithm to make use of the `get_share_of` method in the `Community` class.
+15. Fixed the `__filter` method in the `Community` class to return a community with the same objects, not one with identical ones.
+16. Created the `reset_to` method in the `Stockpile` class.
+17. Created the `Proportional` sharing algorithm.
+18. Added the `recipe` attribute to the `Good` dataclass.
+19. Turned the `Extractor` class into the `Industry` abstract class and made a new `Extractor` class that inherits from it.
+20. Created the `Manufactury` subclass that inherits from `Industry`.

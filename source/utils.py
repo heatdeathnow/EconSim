@@ -1,9 +1,11 @@
 from __future__ import annotations
 from abc import ABC, abstractmethod
+import copy
+import math
 from source.exceptions import NegativeAmountError
 from source.goods import Stockpile
 
-
+# ===================== Sharing algorithms =====================
 class SharingAlg(ABC):
 
     @classmethod
@@ -37,32 +39,27 @@ class FirstInFirstServed(SharingAlg):
     def share(cls, community: Community, stockpile: Stockpile):
 
         for pop in community.values():
-
             consumption = pop.calc_consumption()
             pop.update_welfare(consumption, stockpile)
-
             cls._sub_stock(stockpile, stockpile, consumption)
 
 class Impartial(SharingAlg):
     """
-    This strategy shares goods equally regardless of strata. Since not all strata consume the same types or amount of goods,
-    this sharing algorithm is inefficient in so that it divides the goods indiscriminately dispite this reality.
+    This strategy shares goods equally based on size and regardless of strata. Since not all strata consume the same types or 
+    amount of goods, this sharing algorithm is inefficient in so that it divides the goods indiscriminately dispite this reality.
     """
 
     @classmethod
     def share(cls, community: Community, stockpile: Stockpile):
 
-        try:
-            divided = stockpile / len(community)
-        
-        except ZeroDivisionError:
-            return
-
-        for pop in community.values():
+        original = copy.deepcopy(stockpile)
+        for job, pop in community.items():
+            
+            share = community.get_share_of(job)
+            divided = original * share
 
             consumption = pop.calc_consumption()
             pop.update_welfare(consumption, divided)
-
             cls._sub_stock(stockpile, divided, consumption)
 
 class RichFirst(SharingAlg):
@@ -80,18 +77,15 @@ class RichFirst(SharingAlg):
         middle = community[Strata.MIDDLE]
         lower = community[Strata.LOWER]
 
-        for community_ in (upper, middle, lower):
-            try:
-                divided = stockpile / len(community_)
-        
-            except ZeroDivisionError:
-                continue
-            
-            for pop in community_.values():
+        for current_community in (upper, middle, lower):
+            original = copy.deepcopy(stockpile)
+
+            for job, pop in current_community.items():
+                share = current_community.get_share_of(job)
+                divided = original * share
 
                 consumption = pop.calc_consumption()
                 pop.update_welfare(consumption, divided)
-
                 cls._sub_stock(stockpile, divided, consumption)
 
 class Proportional(SharingAlg):
@@ -101,4 +95,102 @@ class Proportional(SharingAlg):
     way ensuring everyone gets at least some good, even if not the same amount.
     """
 
-from source.pop import Community, Strata
+    UPPER_WEIGHT  = .50
+    MIDDLE_WEIGHT = .35
+    LOWER_WEIGHT  = .15
+
+    assert math.isclose(UPPER_WEIGHT + MIDDLE_WEIGHT + LOWER_WEIGHT, 1)
+
+    @classmethod
+    def share(cls, community: Community, stockpile: Stockpile):
+        stockpiles = {Strata.UPPER: Stockpile({good: amount * cls.UPPER_WEIGHT for good, amount in stockpile.items()}),
+                      Strata.MIDDLE: Stockpile({good: amount * cls.MIDDLE_WEIGHT for good, amount in stockpile.items()}),
+                      Strata.LOWER: Stockpile({good: amount * cls.LOWER_WEIGHT for good, amount in stockpile.items()})}
+        
+        left_overs = Stockpile()
+        for stratum in (Strata.UPPER, Strata.MIDDLE, Strata.LOWER):
+            current_community = community[stratum]
+            stockpiles[stratum] += left_overs
+
+            if current_community.size == 0:
+                left_overs = stockpiles[stratum]
+                continue
+
+            original = copy.deepcopy(stockpiles[stratum])
+            for job, pop in current_community.items():
+                share = current_community.get_share_of(job)
+                divided = original * share
+
+                consumption = pop.calc_consumption()
+                pop.update_welfare(consumption, divided)
+                cls._sub_stock(stockpiles[stratum], divided, consumption)
+            
+            left_overs = stockpiles[stratum]
+        
+        stockpile.reset_to(left_overs)
+
+# ===================== Unemployment algorithms =====================
+class BalanceAlg(ABC):
+    
+    @classmethod
+    @abstractmethod
+    def balance(cls, ext: Industry) -> Community:
+        """
+        This absctract method's implementations will be responsible for unemploying pops from an extractor based on the
+        desired proportion of the working population's jobs. The resposibility of unemploying pops from overcapacity should be
+        handled by the `Extractor` class itself.
+        """
+    
+    @staticmethod
+    def _get_removed(desired_share: int | float, total_size: int | float, pop: Pop) -> Pop:
+        """ Refer to the formulas index. """
+
+        return PopFactory.job(pop.job, - ((desired_share * total_size - pop.size) / (1 + desired_share)), pop.welfare)
+
+class Retrospective(BalanceAlg):
+    
+    @classmethod
+    def balance(cls, ext: Extractor) -> Community:
+        """ 
+        This solution changes the workforce inplace therefore it allows the next calculations to be done with the new size of the 
+        workforce in mind. This solution is flawed because the first jobs to unemploy do not take into account the change in total
+        size that the unemployment by the next jobs will cause.
+        
+        TODO: generalize this so that it works when a specific job is unavailable. In the current form, it will slowly lose popupation
+        as it unemploys pops trying to make those 0 pops of a job it doesn't have reach the desired share.
+        """
+
+        total_unemployed = Community()
+
+        for job, pop in ext.workforce.items():
+
+            if ext.workforce.get_share_of(job) > ext.efficient_shares[job]:  # type: ignore
+                unemployed = cls._get_removed(ext.efficient_shares[job], ext.workforce.size, pop)  # type: ignore 
+                ext.workforce -= unemployed
+                total_unemployed += unemployed
+
+        total_unemployed.unemploy_all()
+        return total_unemployed
+
+class Iterative(BalanceAlg):
+
+    ITERATIONS = 3
+
+    @classmethod
+    def balance(cls, ext: Extractor):
+        total_unemployed = Community()
+
+        for _ in range(cls.ITERATIONS):
+
+            for job, pop in ext.workforce.items():
+
+                if ext.workforce.get_share_of(job) > ext.efficient_shares[job]:  # type: ignore
+                    unemployed = cls._get_removed(ext.efficient_shares[job], ext.workforce.size, pop)  # type: ignore 
+                    ext.workforce -= unemployed
+                    total_unemployed += unemployed
+                    
+        total_unemployed.unemploy_all()        
+        return total_unemployed
+
+from source.pop import Community, Jobs, Strata, Pop, PopFactory, ComFactory
+from source.prod import Extractor, Industry

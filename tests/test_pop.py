@@ -1,3 +1,4 @@
+from source import DECIMAL_CASES
 from source.pop import ComFactory, Community, Pop, Jobs, Strata, PopFactory
 from source.exceptions import NegativeAmountError
 from source.goods import Goods, Stockpile
@@ -164,12 +165,14 @@ class TestPop(TestCase):
 
     @parameterized.expand([
         # LOWER consumes 1 wheat, MIDDLE consumes 2 wheat and 1 iron.
-        (PopFactory.job(Jobs.FARMER, 100), Stockpile({Goods.WHEAT: 100})),
-        (PopFactory.job(Jobs.MINER, 100), Stockpile({Goods.WHEAT: 100})),
-        (PopFactory.job(Jobs.SPECIALIST, 100), Stockpile({Goods.WHEAT: 200, Goods.IRON: 100})),
+        (PopFactory.job(Jobs.FARMER, 100), Stockpile({Goods.WHEAT: 100 * Strata.LOWER.needs[Goods.WHEAT]})),
+        (PopFactory.job(Jobs.MINER, 100), Stockpile({Goods.WHEAT: 100* Strata.LOWER.needs[Goods.WHEAT]})),
+        (PopFactory.job(Jobs.SPECIALIST, 100), Stockpile({Goods.WHEAT: 100 * Strata.MIDDLE.needs[Goods.WHEAT],
+                                                          Goods.IRON: 100 * Strata.MIDDLE.needs[Goods.IRON]})),
 
-        (PopFactory.job(Jobs.FARMER, 50.55), Stockpile({Goods.WHEAT: 50.55})),
-        (PopFactory.job(Jobs.SPECIALIST, 50.55), Stockpile({Goods.WHEAT: 101.1, Goods.IRON: 50.55})),
+        (PopFactory.job(Jobs.FARMER, 50.55), Stockpile({Goods.WHEAT: 50.55 * Strata.LOWER.needs[Goods.WHEAT]})),
+        (PopFactory.job(Jobs.SPECIALIST, 50.55), Stockpile({Goods.WHEAT: 50.55 * Strata.MIDDLE.needs[Goods.WHEAT],
+                                                            Goods.IRON: 50.55 * Strata.MIDDLE.needs[Goods.IRON]})),
     ])
     def test_consumption(self, pop: Pop, expected: Stockpile):
 
@@ -190,7 +193,8 @@ class TestPop(TestCase):
         (PopFactory.job(Jobs.SPECIALIST, 100, 0.5), Stockpile({Goods.WHEAT: 200, Goods.IRON: 100}), 5/6),
         (PopFactory.job(Jobs.SPECIALIST, 100, 0.5), Stockpile({Goods.WHEAT: 200}), 0.5),
         (PopFactory.job(Jobs.SPECIALIST, 100, 0.5), Stockpile({Goods.IRON: 100}), 0.5),
-        (PopFactory.job(Jobs.SPECIALIST, 100, 0.5), Stockpile({Goods.WHEAT: 100, Goods.IRON: 50}), 0.5),
+        # 1/3 * 0.5 + 2/3 * 0.58r3 = 0.r5
+        (PopFactory.job(Jobs.SPECIALIST, 100, 0.5), Stockpile({Goods.WHEAT: 100, Goods.IRON: 50}), 0.55555555),
         (PopFactory.job(Jobs.SPECIALIST, 100, 0.5), Stockpile(), 1/6),
 
         (PopFactory.job(Jobs.FARMER, 0, 0.5), Stockpile(), 0.0),
@@ -198,7 +202,7 @@ class TestPop(TestCase):
     ])
     def test_welfare(self, pop: Pop, stockpile: Stockpile, expected: float):
         pop.update_welfare(pop.calc_consumption(), stockpile)
-        self.assertAlmostEqual(pop.welfare, expected)
+        self.assertAlmostEqual(pop.welfare, expected, DECIMAL_CASES)
 
     @parameterized.expand([
         # WELFARE_THRESHOLD = 0.51
@@ -227,8 +231,8 @@ class TestPop(TestCase):
         (PopFactory.stratum(Strata.MIDDLE, 100, 0.49), False),
         (PopFactory.stratum(Strata.MIDDLE, 100, 0), False),
     ])
-    def test_promotes(self, pop: Pop, expected: bool):
-        self.assertEqual(pop.promotes, expected)
+    def test_can_promote(self, pop: Pop, expected: bool):
+        self.assertEqual(pop.can_promote(), expected)
 
     @parameterized.expand([
     # WELFARE_THRESHOLD = 0.51
@@ -512,22 +516,16 @@ class TestCommunity(TestCase):
         self.assertAlmostEqual(pop.welfare, expected_pop.welfare)
 
     @parameterized.expand([
-        (
-            ComFactory.job({Jobs.FARMER: 100}), Stockpile({Goods.WHEAT: 100})
-        ),
-        (
-            ComFactory.job({Jobs.FARMER: 100, Jobs.MINER: 100}), Stockpile({Goods.WHEAT: 200})
-        ),
-        (
-            ComFactory.job({Jobs.FARMER: 100, Jobs.MINER: 50}), Stockpile({Goods.WHEAT: 150})
-        ),
+        (ComFactory.job({Jobs.FARMER: 100}), Stockpile({Goods.WHEAT: 100 * Strata.LOWER.needs[Goods.WHEAT]})),
+        (ComFactory.job({Jobs.FARMER: 100, Jobs.MINER: 100}), Stockpile({Goods.WHEAT: 200 * Strata.LOWER.needs[Goods.WHEAT]})),
+        (ComFactory.job({Jobs.FARMER: 100, Jobs.MINER: 50}), Stockpile({Goods.WHEAT: 150 * Strata.LOWER.needs[Goods.WHEAT]})),
 
-        (
-            ComFactory.job({Jobs.FARMER: 100, Jobs.SPECIALIST: 100}), Stockpile({Goods.WHEAT: 300, Goods.IRON: 100})
-        ),
-        (
-            ComFactory.job({Jobs.FARMER: 100, Jobs.SPECIALIST: 50}), Stockpile({Goods.WHEAT: 200, Goods.IRON: 50})
-        ),
+        (ComFactory.job({Jobs.FARMER: 100, Jobs.SPECIALIST: 100}), 
+         Stockpile({Goods.WHEAT: 100 * Strata.LOWER.needs[Goods.WHEAT] + 100 * Strata.MIDDLE.needs[Goods.WHEAT],
+                    Goods.IRON: 100 * Strata.MIDDLE.needs[Goods.IRON]})),
+        (ComFactory.job({Jobs.FARMER: 100, Jobs.SPECIALIST: 50}), 
+         Stockpile({Goods.WHEAT: 100 * Strata.LOWER.needs[Goods.WHEAT] + 50 * Strata.MIDDLE.needs[Goods.WHEAT],
+                    Goods.IRON: 50 * Strata.MIDDLE.needs[Goods.IRON]})),
     ])
     def test_calc_goods_demand(self, community: Community, expected: Stockpile):
         goods_demand = community.calc_goods_demand()
@@ -612,3 +610,35 @@ class TestCommunity(TestCase):
             self.assertAlmostEqual(promoted[job].size, pop.size)
             self.assertAlmostEqual(promoted[job].welfare, pop.welfare)
     
+    @parameterized.expand([
+        (ComFactory.job({Jobs.FARMER: 100}), ComFactory.stratum({Strata.LOWER: 100})),
+
+        (ComFactory.job({Jobs.FARMER: 100, Jobs.MINER: 100}), ComFactory.stratum({Strata.LOWER: 200})),
+
+        (ComFactory.job({Jobs.FARMER: 100, Jobs.MINER: 100, Jobs.SPECIALIST: 100}), 
+         ComFactory.stratum({Strata.LOWER: 200, Strata.MIDDLE: 100})),
+    ])
+    def test_unemploy_all(self, community: Community, expected: Community):
+        community.unemploy_all()
+
+        for key, pop in community.items():
+            self.assertEqual(pop.job, expected[key].job)
+            self.assertAlmostEqual(pop.size, expected[key].size)
+            self.assertAlmostEqual(pop.welfare, expected[key].welfare)
+
+    @parameterized.expand([
+        (ComFactory.job({Jobs.FARMER: 100, Jobs.MINER: 50}), Strata.LOWER, ComFactory.job({Jobs.FARMER: 100, Jobs.MINER: 50})),
+        (ComFactory.job({Jobs.FARMER: 100, Jobs.SPECIALIST: 50}), Strata.MIDDLE, ComFactory.job({Jobs.SPECIALIST: 50})),
+        (ComFactory.job({Jobs.FARMER: 100, Jobs.SPECIALIST: 50}), Strata.LOWER, ComFactory.job({Jobs.FARMER: 100})),
+        
+        (ComFactory.job_welfare({Jobs.FARMER: (100, 0.3), Jobs.SPECIALIST: (50, 0.2)}), Strata.MIDDLE, 
+         ComFactory.job_welfare({Jobs.SPECIALIST: (50, 0.2)})),
+    ])
+    def test_filter(self, community: Community, filter: Strata, expected: Community):
+        filtered = community[filter]
+
+        self.assertEqual(len(filtered), len(expected))
+        for job, pop in filtered.items():
+            self.assertAlmostEqual(pop.size, expected[job].size)
+            self.assertAlmostEqual(pop.welfare, expected[job].welfare)
+            self.assertIs(pop, community[job])

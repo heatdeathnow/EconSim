@@ -1,31 +1,51 @@
 from __future__ import annotations
-from _collections_abc import dict_items, dict_values
+from _collections_abc import dict_items, dict_values, dict_keys
 import copy
-from typing import Iterator, Optional, Self, Sequence
-from dataclasses import dataclass
+import math
+from typing import Iterator, Optional, Self
+from dataclasses import dataclass, field
 from math import isclose
 from enum import Enum
+from source import ABS_TOL, DECIMAL_CASES
 
-from source.exceptions import NegativeAmountError
+from source.exceptions import EfficiencyError, NegativeAmountError
 
 
 @dataclass
 class Good:
     name: str
-    recipe: Optional[Sequence[Recipe]] = None
+    base_production: int | float = 1.0
+    recipe: dict[Goods, float] = field(default_factory=dict)
 
     def __repr__(self) -> str:
         return self.name
-
-class Recipe:
-    """To be implemented"""
+    
+    def __post_init__(self):
+        if self.recipe:
+            total_proportion = sum(self.recipe.values())
+            if not math.isclose(total_proportion, 1):
+                raise EfficiencyError(f'The shares of inputs to make the good must sum to 100%, not {total_proportion}.')
 
 class Goods(Enum):
-    WHEAT = Good('Wheat')
-    IRON = Good('Iron')
+    """
+    This enum will serve as a container of sorts. Goods can appear more than once here, because goods can have
+    more than one method of production. In this way, they will be instantiated with the same name, but the name within this
+    enum will be different.
+    """
+    
+    WHEAT = Good('Wheat', 2.35)
+    IRON = Good('Iron', 0.213)
 
     def __repr__(self) -> str:
-        return self.name
+        return self.value.name
+
+    @property
+    def base_production(self) -> int | float:
+        return self.value.base_production
+    
+    @property
+    def recipe(self) -> dict[Goods, int | float]:
+        return self.value.recipe
 
 class Stockpile(dict):
     """
@@ -49,11 +69,17 @@ class Stockpile(dict):
             if not isinstance(value, (int, float)):
                 raise TypeError(f'`Stockpile` objects can only have `int` or `float` as values.')
             
-            if value < 0.0:
+            if value < 0:
                 raise NegativeAmountError(f'`Stockpile` object cannot have negative values.')
             
-            if isclose(value, 0.0):
+            if isclose(value, 0, abs_tol=ABS_TOL):
                 del self[key]
+            
+            else:
+                super().__setitem__(key, round(value, DECIMAL_CASES))  # Prevents infinite recursion.
+
+    def keys(self) -> dict_keys[Goods, int | float]:
+        return super().keys()
 
     def values(self) -> dict_values[Goods, int | float]:
         return super().values()
@@ -69,7 +95,7 @@ class Stockpile(dict):
         self.__fix()
 
     def __setitem__(self, __key: Goods, __value: int | float) -> None:
-        super().__setitem__(__key, __value)
+        super().__setitem__(__key, round(__value, DECIMAL_CASES))
         self.__fix()
 
     def __getitem__(self, __key: Goods) -> int | float:
@@ -81,17 +107,19 @@ class Stockpile(dict):
                 raise TypeError(f'`Stockpile` objects can only have `Goods` as keys.')
         
         except KeyError:
-            # self[__key] = 0.0
-            return 0.0
+            return 0
 
     def __iter__(self) -> Iterator[Goods]:
         return super().__iter__()
 
-    def __scrutinize(self, __value: Stockpile | int | float, *, sub=False, div=False):
+    def __scrutinize(self, __value: Stockpile | int | float, *, sub=False, mul=False, div=False):
 
         if div:
             if sub:
                 raise ValueError('An arithmetic operation can\'t be both subtraction and division.')
+            
+            if mul:
+                raise ValueError('An arithmetic operation can\'t be both multiplication and division.')
             
             if not isinstance(__value, (int, float)):
                 raise TypeError(f'`Stockpile` objects can only be divided by integers or floating points.')
@@ -102,6 +130,16 @@ class Stockpile(dict):
             if __value < 0:
                 raise NegativeAmountError(f'Cannot divide `Stockpile` object by negative numbers.')
         
+        elif mul:
+            if sub:
+                raise ValueError('An arithmetic operation can\'t be both subtraction and multiplication.')
+            
+            if not isinstance(__value, (int, float)):
+                raise TypeError(f'`Stockpile` objects can only be multiplied by integers or floating points.')
+
+            if __value < 0:
+                raise NegativeAmountError(f'Cannot multiply `Stockpile` object by negative numbers.')
+
         elif not isinstance(__value, Stockpile):
                 raise TypeError(f'Only other `Stockpile` objects can be added to a `Stockpile` object.')
             
@@ -138,7 +176,7 @@ class Stockpile(dict):
         self.__scrutinize(__value)
 
         for good, amount in __value.items():
-            self[good] += amount        
+            self[good] = self[good] + amount
         
         return self
     
@@ -147,7 +185,7 @@ class Stockpile(dict):
         self.__scrutinize(__value, sub=True)
         
         for good, amount in __value.items():
-            self[good] -= amount        
+            self[good] = self[good] - amount  
         
         self.__fix()
         return self
@@ -163,3 +201,26 @@ class Stockpile(dict):
         
         return divided
     
+    def __mul__(self, __value: int | float) -> Stockpile:
+
+        self.__scrutinize(__value, mul=True)
+
+        if __value == 1:
+            return copy.deepcopy(self)
+        
+        multiplied = Stockpile()
+        if __value == 0:
+            return multiplied
+
+        for good, amount in self.items():
+            multiplied[good] = amount * __value
+        
+        return multiplied
+
+    def reset_to(self, __value: Stockpile) -> None:
+        self.__scrutinize(__value)
+
+        keys = list(self.keys())
+
+        for key in keys:
+            self[key] = __value[key]

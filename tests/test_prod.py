@@ -1,10 +1,13 @@
+import copy
 from source.pop import ComFactory, Community, Jobs, Pop, Strata, PopFactory
-from source.exceptions import NegativeAmountError
+from source.exceptions import CannotEmployError, NegativeAmountError
 from source.prod import ExtFactory, Extractor
 from source.goods import Goods, Stockpile
 from parameterized import parameterized
 from unittest import TestCase, skip
 from typing import Optional
+
+from source.utils import Retrospective, BalanceAlg
 
 
 class TestExtractorFactory(TestCase):
@@ -143,6 +146,14 @@ class TestExtractor(TestCase):
         # efficiency          --- 1 - (.r0099 + .r9801) / 2 = .r5049
         (ExtFactory.default(Goods.WHEAT, {Jobs.FARMER: 990, Jobs.SPECIALIST: 10}, {Jobs.FARMER: 495, Jobs.SPECIALIST: 10}), 0.50495049),
 
+        # size: 1000
+        # efficient_shares    --- farmer: 990/1000  = .99  | specialist: 10/1000   = .01
+        # shares              --- farmer: 1000/1000 = 1    | specialist: 0 / 1000  = 0
+        # difference          --- farmer: 1 - .99   = .01  | specialist: .01 - 0   = .01
+        # weighted difference --- farmer: .01 / .99 = .r01 | specialist: .01 / .01 = 1
+        # efficiency          --- 1 - (.r01 + 1) / 2 = .r49
+        (ExtFactory.default(Goods.WHEAT, {Jobs.FARMER: 990, Jobs.SPECIALIST: 10}, {Jobs.FARMER: 1000}), 0.49494949),
+
         # size: 495
         # efficient_shares    --- farmer: 990/1000   = .99  | specialist: 10/1000   = .01
         # shares              --- farmer: 495/495    = 1    | specialist: 0 / 495   = 0
@@ -172,35 +183,35 @@ class TestExtractor(TestCase):
     
     @parameterized.expand([
         # Current fixed throughput (will be changed in the future.): THROUGHPUT = 1.25
-        # Extractor.THROUGHPUT * self.calc_total_workers() * self.calc_efficiency()
+        # base_production * self.calc_total_workers() * self.calc_efficiency()
 
         (ExtFactory.default(Goods.WHEAT, {Jobs.FARMER: 990, Jobs.SPECIALIST: 10}), Stockpile()),
 
-        # THROUGHPUT * size * efficiency
-        # 1.25 * 1000 * 1.0 = 1250
-        (ExtFactory.full(Goods.WHEAT, {Jobs.FARMER: 990, Jobs.SPECIALIST: 10}), Stockpile({Goods.WHEAT: 1250})),
-        (ExtFactory.full(Goods.IRON, {Jobs.MINER: 990, Jobs.SPECIALIST: 10}), Stockpile({Goods.IRON: 1250})),
+        # base_production * size * efficiency
+        (ExtFactory.full(Goods.WHEAT, {Jobs.FARMER: 990, Jobs.SPECIALIST: 10}), Stockpile({Goods.WHEAT: 1000 * Goods.WHEAT.base_production})),
+        (ExtFactory.full(Goods.IRON, {Jobs.MINER: 990, Jobs.SPECIALIST: 10}), Stockpile({Goods.IRON: 1000 * Goods.IRON.base_production})),
 
-        # 1.25 * 1000 * 0.r49 = 618.r68
+        # base_production * size * 0.r49
         (ExtFactory.default(Goods.WHEAT, {Jobs.FARMER: 990, Jobs.SPECIALIST: 10}, {Jobs.FARMER: 1000}),
-         Stockpile({Goods.WHEAT: 618.68686869})),
+         Stockpile({Goods.WHEAT: 1000 * Goods.WHEAT.base_production * 0.49494949494949494949494949494949})),
         
-        # 1.25 * 990 * 0.r49 = 612.4r9
+        # base_production * size * 0.r49
         (ExtFactory.default(Goods.WHEAT, {Jobs.FARMER: 990, Jobs.SPECIALIST: 10}, {Jobs.FARMER: 990}),
-         Stockpile({Goods.WHEAT: 612.49999999})),
+         Stockpile({Goods.WHEAT: 990 * Goods.WHEAT.base_production * 0.49494949494949494949494949494949})),
 
-        # 1.25 * 10 * 0 = 0
+        # base_production * size * 0
         (ExtFactory.default(Goods.WHEAT, {Jobs.FARMER: 990, Jobs.SPECIALIST: 10}, {Jobs.SPECIALIST: 10}), Stockpile()),
         
-        # 1.25 * 495 * 0.r49 = 306.25
-        (ExtFactory.default(Goods.WHEAT, {Jobs.FARMER: 990, Jobs.SPECIALIST: 10}, {Jobs.FARMER: 495}), Stockpile({Goods.WHEAT: 306.25})),
+        # base_production * size * 0.r49 = 306.25
+        (ExtFactory.default(Goods.WHEAT, {Jobs.FARMER: 990, Jobs.SPECIALIST: 10}, {Jobs.FARMER: 495}),
+         Stockpile({Goods.WHEAT: 495 * Goods.WHEAT.base_production * 0.49494949494949494949494949494949})),
 
-        # 1.25 * 5 * 0 = 0
+        # base_production * 5 * 0 = 0
         (ExtFactory.default(Goods.WHEAT, {Jobs.FARMER: 990, Jobs.SPECIALIST: 10}, {Jobs.SPECIALIST: 5}), Stockpile()),
 
-        # 1.25 * 500 * 1 = 625
+        # base_production * 500 * 1 = 625
         (ExtFactory.default(Goods.WHEAT, {Jobs.FARMER: 990, Jobs.SPECIALIST: 10}, {Jobs.FARMER: 495, Jobs.SPECIALIST: 5}),
-         Stockpile({Goods.WHEAT: 625})),
+         Stockpile({Goods.WHEAT: 500 * Goods.WHEAT.base_production})),
         
         # size: 500
         # efficient_shares    --- farmer: 990/1000   = .99  | specialist: 10/1000   = .01
@@ -208,9 +219,9 @@ class TestExtractor(TestCase):
         # difference          --- farmer: .99 - .8   = .19  | specialist: .2 - .01  = .19
         # weighted difference --- farmer: .19 / .99  = .r19 | specialist: .19 / .01 = 1
         # efficiency          --- 1 - (.r19 + 1) / 2 = 0.r40
-        # production          --- 1.25 * 500 * 0.r40 = 252.r52
+        # production          --- base_production * 500 * 0.r40
         (ExtFactory.default(Goods.WHEAT, {Jobs.FARMER: 990, Jobs.SPECIALIST: 10}, {Jobs.FARMER: 400, Jobs.SPECIALIST: 100}),
-         Stockpile({Goods.WHEAT: 252.52525253})),
+         Stockpile({Goods.WHEAT: 500 * Goods.WHEAT.base_production * 0.404040404040404040404040404040404040})),
     ])
     def test_produce(self, extractor: Extractor, expected: Stockpile):
         stockpile = extractor.produce()
@@ -243,27 +254,35 @@ class TestExtractor(TestCase):
             self.assertAlmostEqual(need.size, expected[job])  # type: ignore
 
     @parameterized.expand([
-        (ExtFactory.default(Goods.WHEAT, {Jobs.FARMER: 990, Jobs.SPECIALIST: 10}), PopFactory.job(Jobs.FARMER, 100), True),
-        (ExtFactory.default(Goods.WHEAT, {Jobs.FARMER: 990, Jobs.SPECIALIST: 10}), PopFactory.job(Jobs.MINER, 100), False),
-        (ExtFactory.default(Goods.WHEAT, {Jobs.FARMER: 990, Jobs.SPECIALIST: 10}), PopFactory.job(Jobs.SPECIALIST, 100), True),
+        (ExtFactory.default(Goods.WHEAT, {Jobs.FARMER: 990, Jobs.SPECIALIST: 10}), PopFactory.job(Jobs.FARMER, 100), CannotEmployError),
+        (ExtFactory.default(Goods.WHEAT, {Jobs.FARMER: 990, Jobs.SPECIALIST: 10}), PopFactory.job(Jobs.MINER, 100), CannotEmployError),
+        (ExtFactory.default(Goods.WHEAT, {Jobs.FARMER: 990, Jobs.SPECIALIST: 10}), PopFactory.job(Jobs.SPECIALIST, 100), CannotEmployError),
         (ExtFactory.default(Goods.WHEAT, {Jobs.FARMER: 990, Jobs.SPECIALIST: 10}), PopFactory.stratum(Strata.LOWER, 100), True),
         (ExtFactory.default(Goods.WHEAT, {Jobs.FARMER: 990, Jobs.SPECIALIST: 10}), PopFactory.stratum(Strata.MIDDLE, 100), True),
         (ExtFactory.default(Goods.WHEAT, {Jobs.FARMER: 990, Jobs.SPECIALIST: 10}), PopFactory.stratum(Strata.UPPER, 100), False),
 
-        (ExtFactory.full(Goods.WHEAT, {Jobs.FARMER: 990, Jobs.SPECIALIST: 10}), PopFactory.job(Jobs.FARMER, 100), False),
+        (ExtFactory.full(Goods.WHEAT, {Jobs.FARMER: 990, Jobs.SPECIALIST: 10}), PopFactory.stratum(Strata.LOWER, 100), False),
+        (ExtFactory.default(Goods.WHEAT, {Jobs.FARMER: 990, Jobs.SPECIALIST: 10}, {Jobs.FARMER: 980, Jobs.SPECIALIST: 10}), 
+         PopFactory.stratum(Strata.LOWER, 100), True),
     ])
-    def test_can_employ(self, extractor: Extractor, pop: Pop, expected: bool):
-        self.assertEqual(extractor.can_employ(pop), expected)
+    def test_can_employ(self, extractor: Extractor, pop: Pop, expected: bool | type[Exception]):
+        if isinstance(expected, type) and issubclass(expected, Exception):
+            self.assertRaises(expected, extractor.can_employ, pop)
+        
+        else:
+            self.assertEqual(extractor.can_employ(pop), expected)
 
     @parameterized.expand([
-        (ExtFactory.default(Goods.WHEAT, {Jobs.FARMER: 990, Jobs.SPECIALIST: 10}), PopFactory.job(Jobs.FARMER, 100),
-         ExtFactory.default(Goods.WHEAT, {Jobs.FARMER: 990, Jobs.SPECIALIST: 10}, {Jobs.FARMER: 100}), PopFactory.job(Jobs.FARMER)),
+        (ExtFactory.default(Goods.WHEAT, {Jobs.FARMER: 990, Jobs.SPECIALIST: 10}), PopFactory.stratum(Strata.LOWER, 100),
+         ExtFactory.default(Goods.WHEAT, {Jobs.FARMER: 990, Jobs.SPECIALIST: 10}, {Jobs.FARMER: 100}), PopFactory.stratum(Strata.LOWER)),
         
-        (ExtFactory.default(Goods.WHEAT, {Jobs.FARMER: 990, Jobs.SPECIALIST: 10}), PopFactory.job(Jobs.SPECIALIST, 100),
-        ExtFactory.default(Goods.WHEAT, {Jobs.FARMER: 990, Jobs.SPECIALIST: 10}, {Jobs.SPECIALIST: 10}), PopFactory.job(Jobs.SPECIALIST, 90)),
+        (ExtFactory.default(Goods.WHEAT, {Jobs.FARMER: 990, Jobs.SPECIALIST: 10}), PopFactory.stratum(Strata.MIDDLE, 100),
+         ExtFactory.default(Goods.WHEAT, {Jobs.FARMER: 990, Jobs.SPECIALIST: 10}, {Jobs.SPECIALIST: 10}),
+         PopFactory.stratum(Strata.MIDDLE, 90)),
         
-        (ExtFactory.default(Goods.WHEAT, {Jobs.FARMER: 990, Jobs.SPECIALIST: 10}), PopFactory.job(Jobs.FARMER, 1000),
-         ExtFactory.default(Goods.WHEAT, {Jobs.FARMER: 990, Jobs.SPECIALIST: 10}, {Jobs.FARMER: 990}), PopFactory.job(Jobs.FARMER, 10)),
+        (ExtFactory.default(Goods.WHEAT, {Jobs.FARMER: 990, Jobs.SPECIALIST: 10}), PopFactory.stratum(Strata.LOWER, 1000),
+         ExtFactory.default(Goods.WHEAT, {Jobs.FARMER: 990, Jobs.SPECIALIST: 10}, {Jobs.FARMER: 990}),
+         PopFactory.stratum(Strata.LOWER, 10)),
         
         (ExtFactory.default(Goods.WHEAT, {Jobs.FARMER: 990, Jobs.SPECIALIST: 10}), PopFactory.stratum(Strata.LOWER, 100),
          ExtFactory.default(Goods.WHEAT, {Jobs.FARMER: 990, Jobs.SPECIALIST: 10}, {Jobs.FARMER: 100}), PopFactory.stratum(Strata.LOWER)),
@@ -271,6 +290,10 @@ class TestExtractor(TestCase):
         (ExtFactory.default(Goods.WHEAT, {Jobs.FARMER: 990, Jobs.SPECIALIST: 10}), PopFactory.stratum(Strata.MIDDLE, 100),
          ExtFactory.default(Goods.WHEAT, {Jobs.FARMER: 990, Jobs.SPECIALIST: 10}, {Jobs.SPECIALIST: 10}),
          PopFactory.stratum(Strata.MIDDLE, 90)),
+        
+        (ExtFactory.default(Goods.WHEAT, {Jobs.FARMER: 990, Jobs.SPECIALIST: 10}, {Jobs.FARMER: 940, Jobs.SPECIALIST: 10}),
+         PopFactory.stratum(Strata.LOWER, 100),
+         ExtFactory.full(Goods.WHEAT, {Jobs.FARMER: 990, Jobs.SPECIALIST: 10}), PopFactory.stratum(Strata.LOWER, 50))
     ])      
     def test_employ(self, extractor: Extractor, pop: Pop, expected_extractor: Extractor, expected_pop: Pop):
         extractor.employ(pop)
@@ -282,3 +305,31 @@ class TestExtractor(TestCase):
         self.assertEqual(len(extractor.workforce), len(expected_extractor.workforce))
         for job, pop in extractor.workforce.items():
             self.assertAlmostEqual(pop.size, expected_extractor.workforce[job].size)
+
+    @parameterized.expand([
+        (ExtFactory.default(Goods.WHEAT, {Jobs.FARMER: 990, Jobs.SPECIALIST: 10}, {Jobs.FARMER:495, Jobs.SPECIALIST: 10}), True),
+        (ExtFactory.full(Goods.WHEAT, {Jobs.FARMER: 990, Jobs.SPECIALIST: 10}), False),
+        (ExtFactory.default(Goods.WHEAT, {Jobs.FARMER: 990, Jobs.SPECIALIST: 10}, {Jobs.FARMER:495, Jobs.SPECIALIST: 5}), False),
+    ])
+    def test_is_unbalanced(self, extractor: Extractor, expected: bool):
+        self.assertTrue(extractor.is_unbalanced() == expected)
+
+    def test_balance(self):
+        pass
+
+    @parameterized.expand([
+        (Extractor(Goods.WHEAT, {Jobs.FARMER: 990, Jobs.SPECIALIST: 10}, ComFactory.job({Jobs.FARMER: 1980, Jobs.SPECIALIST: 20})),
+         ComFactory.stratum({Strata.LOWER: 990, Strata.MIDDLE: 10})),
+
+        (Extractor(Goods.WHEAT, {Jobs.FARMER: 990, Jobs.SPECIALIST: 10}, ComFactory.job({Jobs.FARMER: 900, Jobs.SPECIALIST: 200})),
+         ComFactory.stratum({Strata.LOWER: 81.818181818, Strata.MIDDLE: 18.181818182}))
+    ])
+    def test_fire_excess(self, extractor: Extractor, expected: Community):
+        original_size = extractor.workforce.size
+        unemployed = extractor.fire_excess()
+
+        for stratum in Strata:
+            self.assertAlmostEqual(unemployed[stratum, Jobs.NONE].size, expected[stratum, Jobs.NONE].size)
+            self.assertAlmostEqual(unemployed[stratum, Jobs.NONE].welfare, expected[stratum, Jobs.NONE].welfare)
+
+        self.assertAlmostEqual(extractor.workforce.size, original_size - unemployed.size)

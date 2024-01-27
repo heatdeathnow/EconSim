@@ -86,6 +86,8 @@ class DataCase:
             else:
                 raise KeyError
         
+        new_col['NONE'] = new_col['NONE'] / 2
+
         new_df = DataFrame(new_col, index=[0])
         self.pop_welfare = pd.concat([self.pop_welfare, new_df], ignore_index=True)
     
@@ -157,6 +159,8 @@ class DataManager:
         datacase.goods_demanded = pd.read_csv(datacase.goods_demanded_file, sep=';')
 
     def plot_graph(self, df: DataFrame, graph_dir: Path, title: str, xlabel: str, ylabel: str):
+
+        df.rename(columns={'NONE': 'HOMELESS'}, inplace=True)
         
         fig, ax = plt.subplots()
         ax: Axes
@@ -202,4 +206,4 @@ class DataManager:
         self.plot_graph(datacase.goods_demanded, folder / 'goods_demanded.png', 'Goods demanded over time', 'Time', 'Amount')
 
         # Goods produced
-        self.plot_graph(datacase.goods_consumed, folder / 'goods_consumed.png', 'Goods demanded over time', 'Time', 'Amount')
+        self.plot_graph(datacase.goods_consumed, folder / 'goods_consumed.png', 'Goods consumed over time', 'Time', 'Amount')

@@ -1,12 +1,10 @@
 ## In order of priority:
 
-- Investigate why the welfare of the SPECIALISTs in the simulation won't drop below 0.2 even though they are dying off.
-
-- Give the `Good` class a `throughput`/`base_production` attribute or a way of having different goods have different production _ceteris paribus_.
-
-- Write the `Recipe` class to mediate crafting of goods.
+- Find a better way to represent goods than an Enum.
 
 - Add the `Manufactury` class, it together with `Extractor` should be subclasses of `Industry`. `Manufactury` objects will behave similar to `Extractor` objects, but will intake goods in order to produce other goods. E.g.: intake wood, produce lumber.
+
+- `Province` class to mediate production of a province through several industries. Provinces should be able to have different absolute advantages on goods e.g.: only being half as good at producing something so on.
 
 - Learn how to properly import modules such that I can import my classes as type-hints without having to add them to the bottom of the module to avoid circular imports.
 

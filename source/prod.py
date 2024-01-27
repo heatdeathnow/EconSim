@@ -1,15 +1,13 @@
 from __future__ import annotations
-from functools import cached_property, lru_cache
-from math import isclose
+from abc import ABC
+from functools import cached_property
 from typing import Optional
-
-from source.exceptions import NegativeAmountError
+from source.utils import BalanceAlg
+from source.exceptions import CannotEmployError, NegativeAmountError
 from source.goods import Goods, Stockpile
 from source.pop import ComFactory, Community, Jobs, Pop, PopFactory, Strata
 
-class Extractor:
-
-    THROUGHPUT = 1.25  # This is a placeholder value while the feature does not yet exist. This will be embedded to the `Good` class.
+class Industry(ABC):
 
     def __init__(self, product: Goods, needed_workers: dict[Jobs, int | float], workforce: Community) -> None:
         self.product = product
@@ -19,7 +17,7 @@ class Extractor:
     def __repr__(self) -> str:
         pops = self.workforce.values()
         pops = list(map(str, pops))
-        return f"<{self.product.name} Extractor obj.: {', '.join(pops)} >"
+        return f"<{self.product.name} {type(self)} obj.: {', '.join(pops)} >"
 
     @cached_property
     def capacity(self) -> float:
@@ -55,14 +53,15 @@ class Extractor:
         return efficiency
 
     def produce(self) -> Stockpile:
-        return Stockpile({self.product: Extractor.THROUGHPUT * self.workforce.size * self.calc_efficiency()})
+        return Stockpile({self.product: self.product.value.base_production 
+                          * self.workforce.size 
+                          * self.calc_efficiency()})
 
-    @lru_cache
     def calc_labor_demand(self) -> Community:
         """ Returns a `dict[Jobs, int | float]` representing how many workers from a specific job are needed to fill up to capacity. """
 
         available_space = self.capacity - self.workforce.size
-
+        
         if available_space <= 0: return Community()
 
         labor_demand = Community()
@@ -86,33 +85,74 @@ class Extractor:
 
         labor_demand = self.calc_labor_demand()
 
-        if __value.job in labor_demand:
+        if __value.job != Jobs.NONE:
+            raise CannotEmployError(f'Can only employ jobless pops, but {__value} was passed.')
+
+        elif len(labor_demand[__value.stratum]) > 0:
             return True
         
-        if __value.job == Jobs.NONE and len(labor_demand[__value.stratum]) > 0:
-            return True
-        
-        return False
+        else:
+            return False
 
     def employ(self, pop: Pop) -> None:
         """ 
-        Employs a pop assuming its job is either demanded or `Jobs.NONE`. If the job is `Jobs.NONE`, it is assumed 
-        that the pop's stratum has jobs that are demanded by this `Extractor`.
-
+        Employs a pop assuming its job is `Jobs.NONE` and that the pop's stratum has jobs that are demanded by this `Extractor`.
         This modifies the passed `pop` argument in place. It removes the workers from it that were employed by this `Extractor`.
         """
 
         labor_demand = self.calc_labor_demand()
+        job = max(labor_demand[pop.stratum].values()).job
 
-        if pop.job == Jobs.NONE:
-            job = max(labor_demand[pop.stratum].values()).job
-            
+        amount_employed = min(pop, labor_demand[job]).size
+        self.workforce += PopFactory.job(job, amount_employed, pop.welfare)
+        pop.size -= amount_employed
+
+    def is_unbalanced(self) -> bool:
+        """ A `Extractor` object will attempt to unemploy all pops that are causing its efficiency to drop below 100%. """
+
+        if any([self.workforce.get_share_of(job) > self.efficient_shares[job] for job in self.workforce]):  # type: ignore
+            return True
+        
         else:
-            job = pop.job
+            return False
 
-        employed = PopFactory.job(job, min(pop, labor_demand[job]).size, pop.welfare)
-        self.workforce += employed
-        pop -= employed
+    def balance(self, alg: type[BalanceAlg]) -> Community:
+        return alg.balance(self)
+
+    def fire_excess(self) -> Community:
+        """ Fires workers to bring the workforce back to the capacity. """
+
+        overcapacity = self.workforce.size / self.capacity
+        excess = Community()
+
+        for job, pop in self.workforce.items():
+            amount = pop.size - pop.size / overcapacity
+            excess += PopFactory.job(job, amount, pop.welfare)  # type: ignore
+
+        self.workforce -= excess
+
+        excess.unemploy_all()
+        return excess
+
+class Extractor(Industry):
+    pass
+
+class Manufactury(Industry):
+    
+    def __init__(self, product: Goods, needed_workers: dict[Jobs, int | float], workforce: Community, stockpile: Stockpile) -> None:
+        super().__init__(product, needed_workers, workforce)
+        self.stockpile = stockpile
+
+    def produce(self) -> Stockpile:
+        attempted_production = super().produce()
+
+        lowest = float('inf')
+        for good, amount in self.product.recipe.items():
+            needed_input = amount * attempted_production[self.product]
+            satisfaction = self.stockpile[good] / needed_input
+            lowest = min(lowest, satisfaction)
+        
+
 
 class ExtFactory:
 
