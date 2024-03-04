@@ -1,208 +1,221 @@
+from decimal import Decimal, getcontext
+from unittest import skip
 from parameterized import parameterized
-from unittest import TestCase
-from source.exceptions import EfficiencyError, NegativeAmountError
-from source.goods import Good, Goods, Stockpile
+from source.exceptions import NegativeAmountError
+from source.goods import Good, Products, Stock, good_factory, stock_factory
+from tests import GoodsMixIn
+D = getcontext().create_decimal
 
-class TestGood(TestCase):
+
+WHEAT = Products.WHEAT
+IRON = Products.IRON
+FLOUR = Products.FLOUR
+
+wheat_fac = good_factory(WHEAT)
+iron_fac = good_factory(IRON)
+flour_fac = good_factory(FLOUR)
+
+wheat_stock_fac = stock_factory(WHEAT)
+iron_stock_fac = stock_factory(IRON)
+wheat_iron_stock_fac = stock_factory(WHEAT, IRON)
+
+class TestGood(GoodsMixIn):
 
     @parameterized.expand([
-        ('Wheat', 2, {}, Good('Wheat', 2)),
-        ('Iron', 1, {}, Good('Iron', 1)),
+        (wheat_fac(100), wheat_fac(100), wheat_fac(200)),
+        (wheat_fac(100), wheat_fac(55.55), wheat_fac(155.55)),
 
-        ('Flour', 2, {Goods.WHEAT: 0.6, Goods.IRON: 0.4}, Good('Flour', 2, {Goods.WHEAT: 0.6, Goods.IRON: 0.4})),
-        ('Flour', 6, {Goods.WHEAT: 0.6, Goods.IRON: 0.3}, EfficiencyError),
-        ('Flour', 6, {Goods.WHEAT: 0.6, Goods.IRON: 0.5}, EfficiencyError),
-
+        (wheat_fac(100), iron_fac(100), ValueError),
     ])
-    def test_init(self, name: str, base_production: float, recipe: dict[Goods, int | float], expected: type[Exception] | Good):
+    def test_add(self, good1: Good, good2: Good, expected: type[Exception] | Good):
         if isinstance(expected, type) and issubclass(expected, Exception):
-            self.assertRaises(expected, Good, name, base_production, recipe)
+            self.assertRaises(expected, good1.__add__, good2)
 
         else:
-            good = Good(name, base_production, recipe)
+            good = good1 + good2
+            good1 += good2
 
-            self.assertEqual(expected.name, good.name)
-            self.assertEqual(expected.base_production, good.base_production)
-            self.assertEqual(len(expected.recipe), len(good.recipe))
+            self.assert_goods_equal(good, expected)
+            self.assert_goods_equal(good1, expected)
 
-            for key, amount in expected.recipe.items():
-                self.assertEqual(amount, good.recipe[key])
-
-class TestStockpile(TestCase):
-    
     @parameterized.expand([
-        ({Goods.WHEAT: 100}, Stockpile({Goods.WHEAT: 100})),
-        ({Goods.WHEAT: 100, Goods.IRON: 100}, Stockpile({Goods.WHEAT: 100, Goods.IRON: 100})),
+        (wheat_fac(200), wheat_fac(100), wheat_fac(100)),
+        (wheat_fac(100), wheat_fac(55.55), wheat_fac(44.45)),
+        (wheat_fac(100), wheat_fac(100), wheat_fac()),
 
-        ({'wheat': 100, 'iron': 100}, TypeError),
-        ({Goods.WHEAT: -100}, NegativeAmountError),
-        ({Goods.WHEAT: 100, Goods.IRON: -100}, NegativeAmountError),
-
-        ({Goods.WHEAT: 0}, Stockpile()),
-        ({Goods.WHEAT: 100, Goods.IRON: 0}, Stockpile({Goods.WHEAT: 100})),
-    ])
-    def test_init(self, kwargs: dict, expected: type[Exception] | Stockpile):
+        (wheat_fac(100), iron_fac(50), ValueError),
+        (wheat_fac(100), wheat_fac(150), NegativeAmountError),
+        ])
+    def test_sub(self, good1: Good, good2: Good, expected: type[Exception] | Good):
         if isinstance(expected, type) and issubclass(expected, Exception):
-            with self.assertRaises(expected):
-                Stockpile(kwargs)
+            self.assertRaises(expected, good1.__sub__, good2)
 
         else:
-            stockpile = Stockpile(kwargs)
+            good = good1 - good2
+            good1 -= good2
 
-            self.assertEqual(len(stockpile), len(expected))
-            for (real_good, real_amount), (expected_good, expected_amount) in zip(stockpile.items(), expected.items()):
-                self.assertEqual(real_good, expected_good)
-                self.assertAlmostEqual(real_amount, expected_amount)
+            self.assert_goods_equal(good, expected)
+            self.assert_goods_equal(good1, expected)
 
     @parameterized.expand([
-        (Stockpile(), (Goods.WHEAT, 100), Stockpile({Goods.WHEAT: 100})),
-        (Stockpile({Goods.WHEAT: 100}), (Goods.WHEAT, 50), Stockpile({Goods.WHEAT: 50})),
-        (Stockpile({Goods.WHEAT: 100}), (Goods.WHEAT, 0), Stockpile()),
-        (Stockpile(), (Goods.WHEAT, -100), NegativeAmountError),
+        (wheat_fac(100), D(2), wheat_fac(200)),
+        (wheat_fac(100), D(0.5), wheat_fac(50)),
+        (iron_fac(100), D(5), iron_fac(500)),
+
+        (wheat_fac(100), D(0), wheat_fac()),
+        (wheat_fac(100), D(-1), NegativeAmountError),
     ])
-    def test_set_item(self, stockpile: Stockpile, item: tuple[Goods, int | float], expected: type[Exception] | Stockpile):
+    def test_mul(self, good1: Good, mult: Decimal, expected: type[Exception] | Good):
         if isinstance(expected, type) and issubclass(expected, Exception):
-            with self.assertRaises(expected):
-                stockpile[item[0]] = item[1]
+            self.assertRaises(expected, good1.__mul__, mult)
 
         else:
-            stockpile[item[0]] = item[1]
-
-            self.assertEqual(len(stockpile), len(expected))
-            for (real_good, real_amount), (expected_good, expected_amount) in zip(stockpile.items(), expected.items()):
-                self.assertEqual(real_good, expected_good)
-                self.assertAlmostEqual(real_amount, expected_amount)
+            good = good1 * mult
+            self.assert_goods_equal(good, expected)
 
     @parameterized.expand([
-        (Stockpile({Goods.WHEAT: 100}), Goods.WHEAT, 100),
-        (Stockpile(), Goods.WHEAT, 0.0),
-        (Stockpile(), 'wheat', TypeError),
+        (wheat_fac(100), D(2), wheat_fac(50)),
+        (wheat_fac(100), D(0.5), wheat_fac(200)),
+        (iron_fac(100), D(5), iron_fac(20)),
+
+        (wheat_fac(100), D(0), ZeroDivisionError),
+        (wheat_fac(100), D(-1), NegativeAmountError),
     ])
-    def test_get_item(self, stockpile: Stockpile, item: Goods, expected: type[Exception] | int | float):
+    def test_div(self, good1: Good, div: Decimal, expected: type[Exception] | Good):
         if isinstance(expected, type) and issubclass(expected, Exception):
-            with self.assertRaises(expected):
-                stockpile[item]
+            self.assertRaises(expected, good1.__truediv__, div)
 
         else:
-            value = stockpile[item]
-            self.assertEqual(value, expected)
+            good = good1 / div
+            self.assert_goods_equal(good, expected)
+
+class TestStockpile(GoodsMixIn):
 
     @parameterized.expand([
-        (Stockpile({Goods.WHEAT: 10}), (Goods.WHEAT, 10), Stockpile({Goods.WHEAT: 20})),
-        (Stockpile({Goods.WHEAT: 10, Goods.IRON: 10}), (Goods.IRON, 10), Stockpile({Goods.WHEAT: 10, Goods.IRON: 20})),
-        
-        (Stockpile(), (Goods.WHEAT, 10), Stockpile({Goods.WHEAT: 10})),
-        (Stockpile({Goods.WHEAT: 10}), (Goods.IRON, 10), Stockpile({Goods.WHEAT: 10, Goods.IRON: 10})),
-        
-        (Stockpile(), ('wheat', 10), TypeError),
-    ])
-    def test_add(self, stockpile: Stockpile, item: tuple[Goods, int | float], expected: type[Exception] | Stockpile):
+        (wheat_stock_fac(), WHEAT, wheat_fac(100), wheat_stock_fac(100)),
+        (wheat_stock_fac(100), WHEAT, wheat_fac(50), wheat_stock_fac(50)),
+        (wheat_stock_fac(100), WHEAT, wheat_fac(), wheat_stock_fac()),
 
+        (wheat_stock_fac(), 'WHEAT', wheat_fac(100), TypeError),
+    ])
+    def test_set_item(self, stockpile: Stock, key: Products, value: Good, expected: type[Exception] | Stock):
         if isinstance(expected, type) and issubclass(expected, Exception):
-            with self.assertRaises(expected):
-                stockpile += Stockpile({item[0]: item[1]})
-                stockpile[item[0]] + item[1]
+            self.assertRaises(expected, stockpile.__setitem__, key, value)
+
+        else:
+            stockpile[key] = value
+            self.assert_stocks_equal(expected, stockpile)
+
+    @parameterized.expand([
+        (wheat_stock_fac(100), WHEAT, wheat_fac(100)),
+        (wheat_stock_fac(), WHEAT, wheat_fac()),
+        (wheat_stock_fac(), 'wheat_fac', TypeError),
+    ])
+    def test_get_item(self, stockpile: Stock, key: Products, expected: type[Exception] | Good):
+        if isinstance(expected, type) and issubclass(expected, Exception):
+            self.assertRaises(expected, stockpile.__getitem__, key)
+
+        else:
+            good = stockpile[key]
+            self.assert_goods_equal(good, expected)
+
+    @parameterized.expand([
+        (wheat_stock_fac(10), wheat_fac(10), wheat_stock_fac(20)),
+        (wheat_iron_stock_fac(10, 10), iron_fac(10), wheat_iron_stock_fac(10, 20)),
+        
+        (wheat_stock_fac(), wheat_fac(10), wheat_stock_fac(10)),
+        (wheat_stock_fac(10), iron_fac(10), wheat_iron_stock_fac(10, 10)),
+        
+        (wheat_stock_fac(10), wheat_iron_stock_fac(10, 10), wheat_iron_stock_fac(20, 10)),
+        (wheat_iron_stock_fac(5, 5.5), iron_stock_fac(5), wheat_iron_stock_fac(5, 10.5)),
+
+        (wheat_stock_fac(), 10, TypeError),
+    ])
+    def test_add(self, stockpile: Stock, item: Good | Stock, expected: type[Exception] | Stock):
+        if isinstance(expected, type) and issubclass(expected, Exception):
+            self.assertRaises(expected, stockpile.__add__, item)
         
         else:
+            new = stockpile + item
+            stockpile += item
 
-            new = stockpile + Stockpile({item[0]: item[1]})
-            stockpile[item[0]] += item[1]
-
-            self.assertEqual(len(stockpile), len(expected))
-            self.assertEqual(len(new), len(expected))
-
-            for good, amount in expected.items():
-                self.assertEqual(amount, new[good])
-                self.assertEqual(amount, stockpile[good])
+            self.assert_stocks_equal(new, expected)
+            self.assert_stocks_equal(stockpile, expected)
 
     @parameterized.expand([
-        (Stockpile({Goods.WHEAT: 20}), (Goods.WHEAT, 10), Stockpile({Goods.WHEAT: 10})),
-        (Stockpile({Goods.WHEAT: 10}), (Goods.WHEAT, 10), Stockpile()),
-        (Stockpile({Goods.WHEAT: 10, Goods.IRON: 10}), (Goods.IRON, 10), Stockpile({Goods.WHEAT: 10})),
+        (wheat_stock_fac(20), wheat_fac(10), wheat_stock_fac(10)),
+        (wheat_stock_fac(10), wheat_fac(10), wheat_stock_fac()),
+        (wheat_iron_stock_fac(10, 10), iron_fac(10), wheat_stock_fac(10)),
         
-        (Stockpile(), (Goods.WHEAT, 10), NegativeAmountError),
-        (Stockpile({Goods.WHEAT: 10}), (Goods.IRON, 10), NegativeAmountError),
-        
-        (Stockpile(), ('wheat', 10), TypeError),
-    ])
-    def test_sub(self, stockpile: Stockpile, item: tuple[Goods, int | float], expected: type[Exception] | Stockpile):
+        (wheat_stock_fac(20), wheat_stock_fac(10), wheat_stock_fac(10)),
+        (wheat_stock_fac(20), wheat_stock_fac(20), wheat_stock_fac()),
+        (wheat_iron_stock_fac(10, 10), wheat_stock_fac(10), iron_stock_fac(10)),
+        (wheat_iron_stock_fac(10, 10), wheat_iron_stock_fac(5, 3), wheat_iron_stock_fac(5, 7)),
+        (wheat_iron_stock_fac(10, 10), wheat_iron_stock_fac(10, 5), iron_stock_fac(5)),
+        (wheat_iron_stock_fac(10, 10), wheat_iron_stock_fac(10, 10), wheat_stock_fac()),
 
+        (wheat_stock_fac(), wheat_fac(10), NegativeAmountError),
+        (wheat_stock_fac(10), iron_fac(10), NegativeAmountError),
+        (wheat_stock_fac(), 10, TypeError),
+    ])
+    def test_sub(self, stockpile: Stock, item: Good | Stock, expected: type[Exception] | Stock):
         if isinstance(expected, type) and issubclass(expected, Exception):
-            with self.assertRaises(expected):
-                stockpile -= Stockpile({item[0]: item[1]})
-                stockpile[item[0]] - item[1]
+            self.assertRaises(expected, stockpile.__sub__, item)
         
         else:
+            new = stockpile - item
+            stockpile -= item
 
-            new = stockpile - Stockpile({item[0]: item[1]})
-            stockpile[item[0]] -= item[1]
-
-            self.assertEqual(len(stockpile), len(expected))
-            self.assertEqual(len(new), len(expected))
-            
-            for good, amount in expected.items():
-                self.assertEqual(amount, new[good])
-                self.assertEqual(amount, stockpile[good])
-    
-    @parameterized.expand([
-        (Stockpile({Goods.WHEAT: 100}), 2, Stockpile({Goods.WHEAT: 50})),
-        (Stockpile({Goods.WHEAT: 100}), 3, Stockpile({Goods.WHEAT: 33.33333333333})),
-
-        (Stockpile({Goods.WHEAT: 100, Goods.IRON: 50}), 2, Stockpile({Goods.WHEAT: 50, Goods.IRON: 25})),
-        (Stockpile({Goods.WHEAT: 100, Goods.IRON: 50}), 3, Stockpile({Goods.WHEAT: 33.333333333, Goods.IRON: 16.666666666})),
-
-        (Stockpile({Goods.WHEAT: 100}), 0, ZeroDivisionError),
-        (Stockpile({Goods.WHEAT: 100}), -1, NegativeAmountError),
-        (Stockpile({Goods.WHEAT: 100}), 'test', TypeError),
-    ])
-    def test_div(self, stockpile: Stockpile, divisor: int | float, expected: type[Exception] | Stockpile):
-        if isinstance(expected, type) and issubclass(expected, Exception):
-            self.assertRaises(expected, stockpile.__truediv__, divisor)
-        
-        else:
-            divided = stockpile / divisor
-
-            self.assertEqual(len(divided), len(expected))
-
-            for good, amount in expected.items():
-                self.assertAlmostEqual(amount, divided[good])
+            self.assert_stocks_equal(new, expected)
+            self.assert_stocks_equal(stockpile, expected)
 
     @parameterized.expand([
-        (Stockpile({Goods.WHEAT: 100}), 2, Stockpile({Goods.WHEAT: 200})),
-        (Stockpile({Goods.WHEAT: 0.5}), 2, Stockpile({Goods.WHEAT: 1})),
-        (Stockpile({Goods.WHEAT: 100, Goods.IRON: 50}), 2, Stockpile({Goods.WHEAT: 200, Goods.IRON: 100})),
-        (Stockpile({Goods.WHEAT: 100}), 1, Stockpile({Goods.WHEAT: 100})),
+        (wheat_stock_fac(100), D(2), wheat_stock_fac(200)),
+        (wheat_stock_fac(0.5), D(2), wheat_stock_fac(1)),
+        (wheat_iron_stock_fac(100, 50), D(2), wheat_iron_stock_fac(200, 100)),
+        (wheat_stock_fac(100), D(1), wheat_stock_fac(100)),
 
-        (Stockpile({Goods.WHEAT: 100}), 0.5, Stockpile({Goods.WHEAT: 50})),
-        (Stockpile({Goods.WHEAT: 100, Goods.IRON: 50}), 0.5, Stockpile({Goods.WHEAT: 50, Goods.IRON: 25})),
+        (wheat_stock_fac(100), D(0.5), wheat_stock_fac(50)),
+        (wheat_iron_stock_fac(100, 50), D(0.5), wheat_iron_stock_fac(50, 25)),
 
-        (Stockpile({Goods.WHEAT: 100, Goods.IRON: 50}), 0, Stockpile()),
+        (wheat_iron_stock_fac(100, 50), D(0), wheat_stock_fac()),
 
-        (Stockpile({Goods.WHEAT: 100, Goods.IRON: 50}), -1, NegativeAmountError),
-        (Stockpile({Goods.WHEAT: 100, Goods.IRON: 50}), 'a', TypeError),
+        (wheat_iron_stock_fac(100, 50), D(-1), NegativeAmountError),
+        (wheat_iron_stock_fac(100, 50), 'a', TypeError),
     ])
-    def test_mul(self, stockpile: Stockpile, multiplier: int | float, expected: type[Exception] | Stockpile):
+    def test_mul(self, stockpile: Stock, multiplier: Decimal, expected: type[Exception] | Stock):
         if isinstance(expected, type) and issubclass(expected, Exception):
             self.assertRaises(expected, stockpile.__mul__, multiplier)
         
         else:
             multiplied = stockpile * multiplier
-
-            self.assertEqual(len(multiplied), len(expected))
-
-            for good, amount in expected.items():
-                self.assertAlmostEqual(amount, multiplied[good])
+            self.assert_stocks_equal(multiplied, expected)
 
     @parameterized.expand([
-        (Stockpile({Goods.WHEAT: 100, Goods.IRON: 100}), Stockpile({Goods.WHEAT: 10})),
+        (wheat_stock_fac(100), D(2), wheat_stock_fac(50)),
+        (wheat_stock_fac(100), D(3), wheat_stock_fac('33.333')),
+
+        (wheat_iron_stock_fac(100, 50), D(2), wheat_iron_stock_fac(50, 25)),
+        (wheat_iron_stock_fac(100, 50), D(3), wheat_iron_stock_fac('33.333', '16.66666666666666')),
+
+        (wheat_stock_fac(100), D(0), ZeroDivisionError),
+        (wheat_stock_fac(100), D(-1), NegativeAmountError),
+        (wheat_stock_fac(100), 'test', TypeError),
     ])
-    def test_reset_to(self, stockpile: Stockpile, to: Stockpile):
-        id1 = id(stockpile)
-        stockpile.reset_to(to)
-
-        self.assertEqual(len(stockpile), len(to))
-        for good, amount in stockpile.items():
-            self.assertEqual(amount, to[good])
-
-        self.assertEqual(id1, id(stockpile))
+    def test_div(self, stockpile: Stock, divisor: Decimal, expected: type[Exception] | Stock):
+        if isinstance(expected, type) and issubclass(expected, Exception):
+            self.assertRaises(expected, stockpile.__truediv__, divisor)
         
+        else:
+            divided = stockpile / divisor
+            self.assert_stocks_equal(divided, expected)
+
+    @parameterized.expand([
+        (wheat_iron_stock_fac(100, 100), wheat_stock_fac(10)),
+    ])
+    def test_reset_to(self, stockpile: Stock, resetor: Stock):
+        id1 = id(stockpile)
+        stockpile.reset_to(resetor)
+
+        self.assert_stocks_equal(stockpile, resetor)
+        self.assertEqual(id1, id(stockpile))

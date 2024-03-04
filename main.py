@@ -1,80 +1,111 @@
 import copy
 from random import shuffle
 import warnings
-from source.goods import Goods, Stockpile
-from source.pop import Community, Jobs, Strata
-from source.prod import ExtFactory
-from source.utils import Iterative, Proportional, Retrospective, RichFirst, Impartial
-from visual.gather import DataCase, DataManager
-
+from source.algs import proportional, retrospective
+from source.goods import Techs, Products, create_stock
+from source.pop import CommuneFactory, Jobs
+from source.prod import Industry, IndustryFactory
+from visual.gather import DataManager
+from decimal import ROUND_HALF_DOWN, Context, DivisionByZero, InvalidOperation, setcontext
 
 def main():
     warnings.simplefilter(action='ignore', category=FutureWarning)
 
     data_name = 'EconSim'
-    data = DataCase(data_name)
 
-    wheat_farm = ExtFactory.default(Goods.WHEAT, {Jobs.FARMER: 900, Jobs.SPECIALIST: 100}, {Jobs.FARMER: 200, Jobs.SPECIALIST: 10})
-    iron_mine = ExtFactory.default(Goods.IRON, {Jobs.MINER: 900, Jobs.SPECIALIST: 100}, {Jobs.MINER: 200, Jobs.SPECIALIST: 10})
-    stockpile = Stockpile()
-    unemployed = Community()
+    WHEAT = Products.WHEAT
+    IRON = Products.IRON
+    FLOUR = Products.FLOUR
 
-    random = [wheat_farm, iron_mine]
+    FARMER = Jobs.FARMER
+    MINER = Jobs.MINER
+    CRAFTSMAN = Jobs.CRAFTSMAN
+    SPECIALIST = Jobs.SPECIALIST
 
-    for _ in range(300):
+    CRAFTING = Techs.CRAFTING
+    MILLING = Techs.MILLING
+
+    farm = IndustryFactory.create_industry(WHEAT, {FARMER: 990, SPECIALIST: 10}, {FARMER: 200, SPECIALIST: 5})
+    mine = IndustryFactory.create_industry(IRON, {MINER: 990, SPECIALIST: 10}, {MINER: 200, SPECIALIST: 5})
+    flour_craft = IndustryFactory.create_industry(FLOUR, {CRAFTSMAN: 990, SPECIALIST: 10}, {CRAFTSMAN: 200, SPECIALIST: 5}, CRAFTING)
+    flour_mill = IndustryFactory.create_industry(FLOUR, {CRAFTSMAN: 990, SPECIALIST: 10}, {CRAFTSMAN: 200, SPECIALIST: 5}, MILLING)
+
+    common_stock = create_stock({WHEAT: 500, IRON: 500})
+    jobless_pops = CommuneFactory.create_by_job()
+    
+    communes = [farm.workforce, mine.workforce, flour_craft.workforce, flour_mill.workforce, jobless_pops]
+    industries: list[Industry] = [farm, mine, flour_craft, flour_mill]
+    manufacturies = [flour_craft, flour_mill]
+
+    data_manager = DataManager(data_name, farm, mine, flour_craft, flour_mill, jobless_pops)
+
+    for _ in range(200):
 
         # ---------------------- PRODUCTION ------------------------
-        goods_produced = wheat_farm.produce()
-        goods_produced += iron_mine.produce()
-        data.record_goods_produced(goods_produced)
-        stockpile += goods_produced
-        data.record_stockpile(stockpile)
+        data_manager.record_goods_satisfaction(common_stock)
 
-        # --------------------- CONSUMPTION ------------------------ 
-        original_stockpile = copy.deepcopy(stockpile)
-        shuffle(random)  # TODO implement an algorithm for choosing what Extractor gets the goods first, or that divides it between them.
-        for extractor in random:
-            extractor.workforce.update_welfares(stockpile, Proportional)  # This modifies the stockpile in place.
+        before = copy.deepcopy(common_stock)
 
-        unemployed.update_welfares(stockpile, Proportional)
+        for industry in industries:
+            common_stock += industry.produce()
 
-        data.record_pop_welfare(wheat_farm.workforce + iron_mine.workforce + unemployed)
-        data.record_goods_demanded((wheat_farm.workforce + iron_mine.workforce + unemployed).calc_goods_demand())
-        data.record_goods_consumed(original_stockpile - stockpile)
+        data_manager.record_goods_produced(before, common_stock)
+        data_manager.record_stockpile(common_stock)
+
+        # --------------------- CONSUMPTION ------------------------
+        original_stock = copy.deepcopy(common_stock)
+        data_manager.record_goods_demanded()
+
+        shuffle(manufacturies)
+        for manufactury in manufacturies:
+            manufactury.restock(common_stock)
+
+        shuffle(industries)
+        for industry in industries:
+            industry.workforce.update_welfares(common_stock, proportional)
+
+        jobless_pops.update_welfares(common_stock, proportional)
+        
+        data_manager.record_pop_welfare()
+        data_manager.record_goods_consumed(original_stock, common_stock)
         
         # ----------------------- RESIZING -------------------------
-        wheat_farm.workforce.resize_all()
-        iron_mine.workforce.resize_all()
-        unemployed.resize_all()
-
+        for commune in communes:
+            commune.resize_all()
+        
         # ----------------------- PROMOTION ------------------------
         # The fact that promotion goes after resizing does affect the behavior of the simulation, for the promotions will be larger this way.
-        unemployed += wheat_farm.workforce.promote_all()
-        unemployed += iron_mine.workforce.promote_all()
+        for commune in communes:
+            if commune is jobless_pops: continue
+            jobless_pops += commune.promote_all()
 
         # ----------------------- EMPLOYMENT -----------------------
-        shuffle(random)  # TODO implement an algorithm for choosing what Extractor gets the goods first, or that divides it between them.
-        for extractor in random:
-            for pop in unemployed.values():
-                if extractor.can_employ(pop):
-                    extractor.employ(pop)
+        shuffle(industries)  # TODO implement an algorithm for choosing what Extractor gets the goods first, or that divides it between them.
+        for industry in industries:
+            for pop in jobless_pops.values():
+                if industry.can_employ(pop):
+                    industry.employ(pop)
         
         # ---------------------- REBALANCING -----------------------
-        for extractor in random:
-            if extractor.workforce.size > extractor.capacity:
-                unemployed += extractor.fire_excess()
+        for industry in industries:
+            if industry.workforce.size > industry.capacity:
+                jobless_pops += industry.fire_excess()
 
-            if extractor.is_unbalanced():
-                unemployed += extractor.balance(Retrospective)
+            if industry.is_unbalanced():
+                jobless_pops += industry.balance(retrospective)
 
-        data.record_pop_size(wheat_farm.workforce + iron_mine.workforce + unemployed)
+        data_manager.record_pop_size()
     
-    manager = DataManager(data)
-    manager.save_csv(data_name, True)
-    manager.plot_all(data_name)
-
-def test():
-    import tests
+    data_manager.save_csv(True)
+    data_manager.plot_all()
 
 if __name__ == '__main__':
+
+    context = Context(rounding=ROUND_HALF_DOWN, traps=[DivisionByZero, InvalidOperation])
+
+    if False:
+        import tests
+        exit()
+
+    setcontext(context)
     main()

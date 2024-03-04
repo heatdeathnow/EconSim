@@ -1,17 +1,19 @@
 from __future__ import annotations
 from dataclasses import dataclass
+from decimal import Decimal, DivisionByZero, DivisionUndefined, InvalidOperation, getcontext
+from itertools import chain
 from pathlib import Path
+from typing import Literal
 from matplotlib.axes import Axes
 from matplotlib.lines import Line2D
-from source.goods import Goods, Stockpile
-from source.pop import Community, Jobs, Strata
+from source.goods import Products, Stock, create_stock
+from source.pop import Commune, CommuneFactory, Jobs, Strata
+from source.prod import Extractor, Industry, Manufactury
 from visual import data_dir
 from pandas import DataFrame
 import pandas as pd
 import matplotlib.pyplot as plt
-
-class FileSyncError(Exception): 
-    pass
+D = getcontext().create_decimal
 
 def is_empty(path: Path) -> bool:
     size = path.stat().st_size
@@ -22,45 +24,63 @@ def is_empty(path: Path) -> bool:
     else:
         return True
 
-@dataclass
-class DataCase:
-    """
-    Used as a case for data. Population, goods produced data, etc will all be kept in instances of this class.
-    """
+type data_key = Literal['pop_size', 'pop_welfare', 'stock', 'goods_produced', 'goods_demanded', 'goods_consumed', 'goods_satisfaction']
 
-    name: str
-    pop_size       = DataFrame(columns = [job.name for job in Jobs])
-    pop_welfare    = DataFrame(columns = [job.name for job in Jobs])
-    stockpile      = DataFrame(columns = [good.name for good in Goods])
-    goods_produced = DataFrame(columns = [good.name for good in Goods])
-    goods_consumed = DataFrame(columns = [good.name for good in Goods])  # unused
-    goods_demanded = DataFrame(columns = [good.name for good in Goods])
-
-    def __post_init__(self):
-        self.data_folder = data_dir / Path(self.name)
-
-        self.pop_size_file       = self.data_folder / 'pop_size.csv'
-        self.pop_welfare_file    = self.data_folder / 'pop_welfare.csv'
-        self.stockpile_file      = self.data_folder / 'stockpile.csv'
-        self.goods_produced_file = self.data_folder / 'goods_produced.csv'
-        self.goods_consumed_file = self.data_folder / 'goods_consumed.csv'
-        self.goods_demanded_file = self.data_folder / 'goods_demanded.csv'
-
-    @property
-    def map(self) -> dict[Path, DataFrame]:
-        return {
-            self.pop_size_file       : self.pop_size,
-            self.pop_welfare_file    : self.pop_welfare,
-            self.stockpile_file      : self.stockpile,
-            self.goods_produced_file : self.goods_produced,
-            self.goods_consumed_file : self.goods_consumed,
-            self.goods_demanded_file : self.goods_demanded,
+class DataManager:
+    def __init__(self, name: str, /, *to_be_recorded: Industry | Commune) -> None:
+        self.name = name
+        self.data: dict[data_key, DataFrame] = {
+            'pop_size': DataFrame(columns = [job.name for job in Jobs]),
+            'pop_welfare': DataFrame(columns = [job.name for job in Jobs]),
+            'stock': DataFrame(columns = [good.name for good in Products]),
+            'goods_produced': DataFrame(columns = [good.name for good in Products]),
+            'goods_demanded': DataFrame(columns = [good.name for good in Products]),
+            'goods_consumed': DataFrame(columns = [good.name for good in Products]),
+            'goods_satisfaction': DataFrame(columns = [good.name for good in Products])
         }
 
-    def record_pop_size(self, pops: Community) -> None:
-        new_col: dict[str, int | float] = {job.name: 0.0 for job in Jobs}
+        self.manufacturies = tuple(thing for thing in to_be_recorded if isinstance(thing, Manufactury))
+        self.extractors = tuple(thing for thing in to_be_recorded if isinstance(thing, Extractor))
+        self.communes = tuple(thing for thing in to_be_recorded if isinstance(thing, Commune))
 
-        for key, pop in pops.items():
+        self.folder = data_dir / self.name
+
+        self.csv_files: dict[data_key, Path] = {
+            'pop_size': self.folder / 'pop_size.csv',
+            'pop_welfare': self.folder / 'pop_welfare.csv',
+            'stock': self.folder / 'stock.csv',
+            'goods_produced': self.folder / 'goods_produced.csv',
+            'goods_demanded': self.folder / 'goods_demanded.csv',
+            'goods_consumed': self.folder / 'goods_consumed.csv',
+            'goods_satisfaction': self.folder / 'goods_satisfaction.csv',
+        }
+
+        self.graph_folder = self.folder / 'graphs'
+        self.graph_files: dict[data_key, Path] = {
+            'pop_size': self.folder / self.graph_folder / 'pop_size.png',
+            'pop_welfare': self.folder / self.graph_folder / 'pop_welfare.png',
+            'stock': self.folder / self.graph_folder / 'stock.png',
+            'goods_produced': self.folder / self.graph_folder / 'goods_produced.png',
+            'goods_demanded': self.folder / self.graph_folder / 'goods_demanded.png',
+            'goods_consumed': self.folder / self.graph_folder / 'goods_consumed.png',
+            'goods_satisfaction': self.folder / self.graph_folder / 'goods_satisfaction.png',
+        }
+
+    def _get_all_communes(self) -> Commune:
+        communes = CommuneFactory.create_by_job()
+        
+        for industry in chain(self.manufacturies, self.extractors):
+            communes += industry.workforce
+
+        for commune in self.communes:
+            communes += commune
+        
+        return communes    
+
+    def record_pop_size(self):
+        new_col: dict[str, Decimal] = {job.name: D(0) for job in Jobs}
+
+        for key, pop in self._get_all_communes().items():
             if isinstance(key, tuple):
                 new_col[key[1].name] += pop.size
             
@@ -71,14 +91,16 @@ class DataCase:
                 raise KeyError
         
         new_df = DataFrame(new_col, index=[0])
-        self.pop_size = pd.concat([self.pop_size, new_df], ignore_index=True)
-    
-    def record_pop_welfare(self, pops: Community) -> None:
-        new_col: dict[str, int | float] = {job.name: 0.0 for job in Jobs}
+        self.data['pop_size'] = pd.concat([self.data['pop_size'], new_df], ignore_index=True) 
 
-        for key, pop in pops.items():
+    def record_pop_welfare(self) -> None:
+        new_col: dict[str, Decimal] = {job.name: D(0) for job in Jobs}
+        divisor = 0
+
+        for key, pop in self._get_all_communes().items():
             if isinstance(key, tuple):
                 new_col[key[1].name] += pop.welfare
+                divisor += 1
             
             elif key in Jobs:
                 new_col[key.name] += pop.welfare
@@ -86,81 +108,119 @@ class DataCase:
             else:
                 raise KeyError
         
-        new_col['NONE'] = new_col['NONE'] / 2
+        if divisor != 0:
+            new_col[Jobs.UNEMPLOYED.name] /= divisor
+            
+        new_df = DataFrame(new_col, index=[0])
+        self.data['pop_welfare'] = pd.concat([self.data['pop_welfare'], new_df], ignore_index=True)
+    
+    def record_stockpile(self, stock: Stock, /):
+        new_col: dict[str, Decimal] = {product.name: D(0) for product in Products}
+
+        for product, good in stock.items():
+            new_col[product.name] += good.amount
 
         new_df = DataFrame(new_col, index=[0])
-        self.pop_welfare = pd.concat([self.pop_welfare, new_df], ignore_index=True)
-    
-    @staticmethod
-    def __stockpile_to_df(stockpile: Stockpile):
-        new_col = {good.name: 0.0 for good in Goods}
+        self.data['stock'] = pd.concat([self.data['stock'], new_df], ignore_index=True)
 
-        for good, amount in stockpile.items():
-            new_col[good.name] += amount
+    def record_goods_produced(self, stock_before: Stock, stock_after: Stock, /):
+        new_col: dict[str, Decimal] = {product.name: D(0) for product in Products}
+
+        for product in Products:
+            new_col[product.name] += stock_after[product].amount - stock_before[product].amount
 
         new_df = DataFrame(new_col, index=[0])
+        self.data['goods_produced'] = pd.concat([self.data['goods_produced'], new_df], ignore_index=True)
+
+    def record_goods_demanded(self):
+        new_col: dict[str, Decimal] = {product.name: D(0) for product in Products}
+        total_demand = create_stock()
+
+        for manufactury in self.manufacturies:
+            total_demand += manufactury.workforce.calc_goods_demand()
+            total_demand += manufactury.calc_input_demand()
+            
+        for extractor in self.extractors:
+            total_demand += extractor.workforce.calc_goods_demand()
+
+        for commune in self.communes:
+            total_demand += commune.calc_goods_demand()
         
-        return new_df
-    
-    def record_stockpile(self, goods: Stockpile):
-        self.stockpile = pd.concat([self.stockpile, self.__stockpile_to_df(goods)], ignore_index=True)
-
-    def record_goods_produced(self, goods: Stockpile):
-        self.goods_produced = pd.concat([self.goods_produced, self.__stockpile_to_df(goods)], ignore_index=True)
-    
-    def record_goods_consumed(self, goods: Stockpile):
-        self.goods_consumed = pd.concat([self.goods_consumed, self.__stockpile_to_df(goods)], ignore_index=True)
-    
-    def record_goods_demanded(self, goods: Stockpile):
-        self.goods_demanded = pd.concat([self.goods_demanded, self.__stockpile_to_df(goods)], ignore_index=True)
-
-class DataManager:
-
-    def __init__(self, *datacases: DataCase) -> None:
-        self.data = {datacase.name: datacase for datacase in datacases}
-
-    @staticmethod
-    def __sync_check(datacase: DataCase) -> None:
-        if any(is_empty(file) for file in datacase.map) and not all(is_empty(file) for file in datacase.map):
-            raise FileSyncError
-
-    @staticmethod
-    def __file_exists_check(datacase: DataCase) -> None:
-        if not datacase.data_folder.exists():
-            datacase.data_folder.mkdir()
+        for product, demand in total_demand.items():
+            new_col[product.name] += demand.amount
         
-        for file in datacase.map:
+        new_df = DataFrame(new_col, index=[0])
+        self.data['goods_demanded'] = pd.concat([self.data['goods_demanded'], new_df], ignore_index=True)
+
+    def record_goods_consumed(self, stock_before: Stock, stock_after: Stock):
+        new_col: dict[str, Decimal] = {product.name: D(0) for product in Products}
+
+        for product in Products:
+            new_col[product.name] += stock_before[product].amount - stock_after[product].amount
+
+        new_df = DataFrame(new_col, index=[0])
+        self.data['goods_consumed'] = pd.concat([self.data['goods_consumed'], new_df], ignore_index=True)
+
+    def record_goods_satisfaction(self, stock_before: Stock):
+        new_col: dict[str, Decimal] = {product.name: D(0) for product in Products}
+        total_demand = create_stock()
+
+        for manufactury in self.manufacturies:
+            total_demand += manufactury.workforce.calc_goods_demand()
+            total_demand += manufactury.calc_input_demand()
+            
+        for extractor in self.extractors:
+            total_demand += extractor.workforce.calc_goods_demand()
+
+        for commune in self.communes:
+            total_demand += commune.calc_goods_demand()
+
+        for product in Products:
+            try:
+                satisfaction = min(D(1), stock_before[product].amount / total_demand[product].amount)
+            
+            except (DivisionByZero, DivisionUndefined, InvalidOperation) as e:
+                if isinstance(e, (DivisionUndefined, InvalidOperation)):
+                    print(stock_before[product].amount, total_demand[product].amount)
+                    raise e
+
+                satisfaction = D(1)
+
+            new_col[product.name] += satisfaction
+
+        new_df = DataFrame(new_col, index=[0])
+        self.data['goods_satisfaction'] = pd.concat([self.data['goods_satisfaction'], new_df], ignore_index=True)
+
+    def _prepare_save(self):
+        if not self.folder.exists():
+            self.folder.mkdir()
+        
+        for file in self.csv_files.values():
             if not file.exists():
-                with file.open('x'): pass
+                file.open("x+").close()
 
-    def save_csv(self, case: str, overwrite: bool = False) -> None:
-        datacase = self.data[case]
+    def save_csv(self, overwrite: bool = False) -> None:
+        self._prepare_save()
 
-        self.__file_exists_check(datacase)
-        self.__sync_check(datacase)
-
-        if overwrite or all(is_empty(file) for file in datacase.map):
-            for file, df in datacase.map.items():
-                df.to_csv(file, sep=';', index=False)
+        if overwrite or all(is_empty(file) for file in self.csv_files.values()):
+            for key, df in self.data.items():
+                df.to_csv(self.csv_files[key], sep=';', index=False)
         
         else:
-            for file, df in datacase.map.items():
-                old_df = pd.read_csv(file, sep=';')
+            for key, df in self.data.items():
+                old_df = pd.read_csv(self.csv_files[key], sep=';')
                 new_df = pd.concat([old_df, df], ignore_index=True)
-                new_df.to_csv(file, sep=';', index=False)
+                new_df.to_csv(self.csv_files[key], sep=';', index=False)
 
-    def load_csv(self, case: str) -> None:
-        datacase = self.data[case]
+    def plot_graph(self, which: data_key, /, *, title: str, xlabel: str, ylabel: str):
+        
+        if not self.graph_folder.exists():
+            self.graph_folder.mkdir()
+        
+        if not self.graph_files[which].exists():
+            self.graph_files[which].open('x+').close()
 
-        datacase.pop_size = pd.read_csv(datacase.pop_size_file, sep=';')
-        datacase.pop_welfare = pd.read_csv(datacase.pop_welfare_file, sep=';')
-        datacase.goods_produced = pd.read_csv(datacase.goods_produced_file, sep=';')
-        datacase.goods_consumed = pd.read_csv(datacase.goods_consumed_file, sep=';')
-        datacase.goods_demanded = pd.read_csv(datacase.goods_demanded_file, sep=';')
-
-    def plot_graph(self, df: DataFrame, graph_dir: Path, title: str, xlabel: str, ylabel: str):
-
-        df.rename(columns={'NONE': 'HOMELESS'}, inplace=True)
+        df = self.data[which]
         
         fig, ax = plt.subplots()
         ax: Axes
@@ -177,33 +237,28 @@ class DataManager:
         
         fig.tight_layout()
         fig.legend()
-        fig.savefig(graph_dir, dpi=300)
+        fig.savefig(str(self.graph_files[which]), dpi=300)
         plt.close()
 
-    def plot_all(self, case: str) -> None:
-        datacase = self.data[case]
-
-        folder = datacase.data_folder / 'graphs'
-
-        try:
-            folder.mkdir()
-        except FileExistsError:
-            pass
+    def plot_all(self) -> None:
 
         # Population size
-        self.plot_graph(datacase.pop_size, folder / 'pop_size.png', 'Population Size', 'Time', 'Size')
+        self.plot_graph('pop_size', title='Population Size', xlabel='Time', ylabel='Size')
 
         # Population welfare
-        self.plot_graph(datacase.pop_welfare, folder / 'welfare.png', 'Welfare over time', 'Time', 'Welfare')
+        self.plot_graph('pop_welfare', title='Welfare over time', xlabel='Time', ylabel='Welfare')
 
         # Population welfare
-        self.plot_graph(datacase.stockpile, folder / 'stockpile.png', 'Stockpile', 'Time', 'Amount')
+        self.plot_graph('stock', title='Stock', xlabel='Time', ylabel='Amount')
 
-        # Goods produced
-        self.plot_graph(datacase.goods_produced, folder / 'goods_produced.png', 'Goods produced over time', 'Time', 'Amount')
+        # Products produced
+        self.plot_graph('goods_produced', title='Products produced over time', xlabel='Time', ylabel='Amount')
 
-        # Goods produced
-        self.plot_graph(datacase.goods_demanded, folder / 'goods_demanded.png', 'Goods demanded over time', 'Time', 'Amount')
+        # Products demanded
+        self.plot_graph('goods_demanded', title='Products demanded over time', xlabel='Time', ylabel='Amount')
 
-        # Goods produced
-        self.plot_graph(datacase.goods_consumed, folder / 'goods_consumed.png', 'Goods consumed over time', 'Time', 'Amount')
+        # Products consumed
+        self.plot_graph('goods_consumed', title='Products consumed over time', xlabel='Time', ylabel='Amount')
+
+        # Products satisfaction
+        self.plot_graph('goods_satisfaction', title='Demand satisfaction', xlabel='Time', ylabel='Percentage')
